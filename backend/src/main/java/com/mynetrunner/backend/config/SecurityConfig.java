@@ -22,6 +22,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll() // Allow auth endpoints
                 .requestMatchers("/api/health").permitAll() // Allow health check
+                .requestMatchers("/api/users/**").permitAll()
                 .requestMatchers("/ws/**").permitAll() // Allow WebSocket connections
                 .anyRequest().permitAll() // Allow all other requests for now
             );
