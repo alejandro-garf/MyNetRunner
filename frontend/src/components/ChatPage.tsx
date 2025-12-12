@@ -338,3 +338,5 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     </div>
   );
 };
+
+export default ChatPage;
