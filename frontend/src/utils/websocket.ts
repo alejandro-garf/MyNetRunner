@@ -1,6 +1,7 @@
 import SockJS from 'sockjs-client';
 import { Client, IMessage } from '@stomp/stompjs';
 import type { Message } from '../types';
+import { getToken, authAPI } from './api';
 
 export class ChatWebSocket {
   private stompClient: Client | null = null;
@@ -8,47 +9,61 @@ export class ChatWebSocket {
   private connected: boolean = false;
   private messageCallback: ((message: Message) => void) | null = null;
   private errorCallback: ((error: string) => void) | null = null;
+  private presenceCallback: ((presence: { username: string; online: boolean }) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
   }
 
-connect(onMessage: (message: Message) => void, onError?: (error: string) => void): void {
-  this.messageCallback = onMessage;
-  this.errorCallback = onError || null;
+  connect(
+    onMessage: (message: Message) => void,
+    onError?: (error: string) => void,
+    onPresence?: (presence: { username: string; online: boolean }) => void
+  ): void {
+    this.messageCallback = onMessage;
+    this.errorCallback = onError || null;
+    this.presenceCallback = onPresence || null;
 
-  // Get username from localStorage
-  const username = localStorage.getItem('username') || 'anonymous';
+    // Get JWT token from localStorage
+    const token = getToken();
 
-  try {
-    const socket = new SockJS(this.url);
-    
-    this.stompClient = new Client({
-      webSocketFactory: () => socket as any,
-      debug: (str) => {
-        console.log('STOMP Debug:', str);
-      },
-      reconnectDelay: 5000,
-      heartbeatIncoming: 4000,
-      heartbeatOutgoing: 4000,
-      // Send username in connect headers
-      connectHeaders: {
-        username: username
+    if (!token) {
+      console.error('No auth token available');
+      if (this.errorCallback) {
+        this.errorCallback('Not authenticated');
       }
-    });
+      return;
+    }
+
+    try {
+      const socket = new SockJS(this.url);
+
+      this.stompClient = new Client({
+        webSocketFactory: () => socket as any,
+        debug: (str) => {
+          console.log('STOMP Debug:', str);
+        },
+        reconnectDelay: 5000,
+        heartbeatIncoming: 4000,
+        heartbeatOutgoing: 4000,
+        // Send JWT token in connect headers
+        connectHeaders: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       // Set up connection handler
       this.stompClient.onConnect = () => {
         console.log('STOMP WebSocket connected');
         this.connected = true;
 
-        // Subscribe to personal message queue
         if (this.stompClient) {
+          // Subscribe to personal message queue
           this.stompClient.subscribe('/user/queue/messages', (message: IMessage) => {
             try {
               const receivedMessage = JSON.parse(message.body);
               console.log('Received message:', receivedMessage);
-              
+
               if (this.messageCallback) {
                 this.messageCallback(receivedMessage);
               }
@@ -59,6 +74,20 @@ connect(onMessage: (message: Message) => void, onError?: (error: string) => void
               }
             }
           });
+
+          // Subscribe to presence updates
+          this.stompClient.subscribe('/topic/presence', (message: IMessage) => {
+            try {
+              const presenceUpdate = JSON.parse(message.body);
+              console.log('Presence update:', presenceUpdate);
+
+              if (this.presenceCallback) {
+                this.presenceCallback(presenceUpdate);
+              }
+            } catch (error) {
+              console.error('Failed to parse presence update:', error);
+            }
+          });
         }
       };
 
@@ -66,8 +95,18 @@ connect(onMessage: (message: Message) => void, onError?: (error: string) => void
       this.stompClient.onStompError = (frame) => {
         console.error('STOMP error:', frame);
         this.connected = false;
-        if (this.errorCallback) {
-          this.errorCallback('Connection error');
+
+        // Check if it's an auth error
+        const errorMessage = frame.headers?.message || 'Connection error';
+        if (
+          errorMessage.includes('token') ||
+          errorMessage.includes('Authorization') ||
+          errorMessage.includes('auth')
+        ) {
+          // Try to refresh token and reconnect
+          this.handleAuthError();
+        } else if (this.errorCallback) {
+          this.errorCallback(errorMessage);
         }
       };
 
@@ -92,6 +131,24 @@ connect(onMessage: (message: Message) => void, onError?: (error: string) => void
       console.error('Failed to create WebSocket connection:', error);
       if (this.errorCallback) {
         this.errorCallback('Failed to connect');
+      }
+    }
+  }
+
+  private async handleAuthError(): Promise<void> {
+    console.log('Attempting to refresh token...');
+    const newToken = await authAPI.refreshToken();
+
+    if (newToken) {
+      console.log('Token refreshed, reconnecting...');
+      this.disconnect();
+      // Reconnect with new token
+      if (this.messageCallback) {
+        this.connect(this.messageCallback, this.errorCallback || undefined, this.presenceCallback || undefined);
+      }
+    } else {
+      if (this.errorCallback) {
+        this.errorCallback('Authentication failed. Please log in again.');
       }
     }
   }
@@ -139,7 +196,7 @@ export const initializeChatWebSocket = (url: string): ChatWebSocket => {
   if (chatWebSocket) {
     chatWebSocket.disconnect();
   }
-  
+
   chatWebSocket = new ChatWebSocket(url);
   return chatWebSocket;
 };

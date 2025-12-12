@@ -69,9 +69,9 @@
 ### Phase 2: Security Hardening ⬜ TODO
 
 #### JWT Authentication Improvements
-- [ ] Add JWT filter to validate tokens on protected endpoints
-- [ ] Implement token refresh mechanism
-- [ ] Add token blacklist for logout (store in Redis)
+- [x] Add JWT filter to validate tokens on protected endpoints
+- [x] Implement token refresh mechanism
+- [x] Add token blacklist for logout (store in Redis)
 - [ ] Secure WebSocket connections with JWT validation
 
 #### Rate Limiting
