@@ -130,7 +130,7 @@
   - Returns: shared secret (32 bytes)
 
 ### Session Storage
-- x ] Store session data in IndexedDB
+- [x] Store session data in IndexedDB
   - `userId` — who the session is with
   - `sharedSecret` — derived from X3DH (used for AES encryption)
   - `createdAt` — when session was established
@@ -144,7 +144,7 @@
 ## Phase 4: Message Encryption
 
 ### Encryption Utilities
-- [ ] Create `crypto/MessageCrypto.ts`
+- [x] Create `crypto/MessageCrypto.ts`
   - `encryptMessage(plaintext, sharedSecret)` — AES-256-GCM encrypt
     - Generate random 12-byte IV
     - Encrypt with AES-256-GCM
@@ -155,31 +155,31 @@
     - Return: plaintext string
 
 ### Update WebSocket Message Flow
-- [ ] Update `websocket.ts`
+- [x] Update `websocket.ts`
   - Before sending: encrypt message content
   - After receiving: decrypt message content
 
 ### Update Message Types
-- [ ] Update `MessageRequest` to include
+- [x] Update `MessageRequest` to include
   - `encryptedContent` (String, base64)
   - `iv` (String, base64)
   - `isEncrypted` (Boolean)
 
-- [ ] Update `MessageResponse` similarly
+- [x] Update `MessageResponse` similarly
 
 ### Backend Changes
-- [ ] Update `Message` entity
+- [x] Update `Message` entity
   - Add `iv` field (String)
   - Add `isEncrypted` field (Boolean)
   - Rename/keep `content` for encrypted content
 
-- [ ] Update `MessageService`
+- [x] Update `MessageService`
   - Store encrypted content as-is (server never decrypts)
 
 ### Testing
-- [ ] Test encrypt/decrypt locally
-- [ ] Test sending encrypted message via WebSocket
-- [ ] Test receiving and decrypting message
+- [x] Test encrypt/decrypt locally
+- [x] Test sending encrypted message via WebSocket
+- [x] Test receiving and decrypting message
 
 ---
 

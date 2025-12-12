@@ -51,11 +51,11 @@ public class WebSocketMessageController {
             System.out.println("From: " + request.getSenderUsername());
             System.out.println("To: " + request.getRecipientUsername());
             System.out.println("Encrypted: " + request.getIsEncrypted());
+            System.out.println("Has key exchange: " + (request.getSenderIdentityKey() != null));
 
-            // Check rate limit for sender
+            // Check rate limit
             if (!rateLimitService.isAllowed(request.getSenderUsername(), "message", MESSAGE_MAX_ATTEMPTS, MESSAGE_WINDOW_SECONDS)) {
                 System.err.println("Rate limit exceeded for user: " + request.getSenderUsername());
-
                 messagingTemplate.convertAndSendToUser(
                     request.getSenderUsername(),
                     "/queue/errors",
@@ -64,28 +64,22 @@ public class WebSocketMessageController {
                 return;
             }
 
-            // Find sender by username
             User sender = userRepository.findByUsername(request.getSenderUsername())
                     .orElseThrow(() -> new UserNotFoundException("Sender not found: " + request.getSenderUsername()));
 
-            // Find receiver by username
             User receiver = userRepository.findByUsername(request.getRecipientUsername())
                     .orElseThrow(() -> new UserNotFoundException("Recipient not found: " + request.getRecipientUsername()));
 
-            // Determine content to store
             String contentToStore;
             String iv = null;
             boolean isEncrypted = Boolean.TRUE.equals(request.getIsEncrypted());
 
             if (isEncrypted && request.getEncryptedContent() != null) {
-                // Store encrypted content as-is (server never decrypts)
                 contentToStore = request.getEncryptedContent();
                 iv = request.getIv();
                 System.out.println("Storing encrypted message (server cannot read)");
             } else {
-                // Sanitize plaintext content
                 contentToStore = sanitizationUtil.sanitize(request.getContent());
-                
                 if (sanitizationUtil.containsDangerousContent(request.getContent())) {
                     System.err.println("Dangerous content detected from user: " + request.getSenderUsername());
                     messagingTemplate.convertAndSendToUser(
@@ -97,7 +91,6 @@ public class WebSocketMessageController {
                 }
             }
 
-            // Create and save message
             Message message = messageService.sendMessage(
                     sender.getId(),
                     receiver.getId(),
@@ -105,27 +98,25 @@ public class WebSocketMessageController {
                     iv,
                     isEncrypted);
 
-            // Create response
-            MessageResponse response;
+            // Build response
+            MessageResponse response = new MessageResponse();
+            response.setId(message.getId());
+            response.setSenderId(sender.getId());
+            response.setSenderUsername(sender.getUsername());
+            response.setReceiverId(receiver.getId());
+            response.setTimestamp(message.getTimestamp());
+            response.setDelivered(message.getDelivered());
+            response.setIsEncrypted(isEncrypted);
+
             if (isEncrypted) {
-                response = new MessageResponse(
-                        message.getId(),
-                        sender.getId(),
-                        sender.getUsername(),
-                        receiver.getId(),
-                        message.getContent(),  // encrypted content
-                        message.getIv(),
-                        message.getTimestamp(),
-                        message.getDelivered());
+                response.setEncryptedContent(message.getContent());
+                response.setIv(message.getIv());
+                // Pass through key exchange data
+                response.setSenderIdentityKey(request.getSenderIdentityKey());
+                response.setSenderEphemeralKey(request.getSenderEphemeralKey());
+                response.setUsedOneTimePreKeyId(request.getUsedOneTimePreKeyId());
             } else {
-                response = new MessageResponse(
-                        message.getId(),
-                        sender.getId(),
-                        sender.getUsername(),
-                        receiver.getId(),
-                        message.getContent(),
-                        message.getTimestamp(),
-                        message.getDelivered());
+                response.setContent(message.getContent());
             }
 
             System.out.println("=== SENDING MESSAGE TO RECIPIENT ===");
@@ -137,7 +128,6 @@ public class WebSocketMessageController {
 
             System.out.println("Message sent to user: " + receiver.getUsername());
 
-            // Mark as delivered and delete from server
             messageService.markAsDelivered(message.getId());
 
             System.out.println("=== MESSAGE PROCESSING COMPLETE ===");
@@ -161,12 +151,7 @@ public class WebSocketMessageController {
             this.timestamp = System.currentTimeMillis();
         }
 
-        public String getError() {
-            return error;
-        }
-
-        public long getTimestamp() {
-            return timestamp;
-        }
+        public String getError() { return error; }
+        public long getTimestamp() { return timestamp; }
     }
 }

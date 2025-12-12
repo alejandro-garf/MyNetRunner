@@ -15,6 +15,12 @@ interface PreKeyBundle {
   oneTimePreKey: string | null;
 }
 
+interface X3DHResult {
+  sharedSecret: string;
+  ephemeralPublicKey: string;
+  usedOneTimePreKeyId: number | null;
+}
+
 // Import a public key from base64 SPKI format
 async function importPublicKey(base64Key: string): Promise<CryptoKey> {
   const keyBuffer = base64ToArrayBuffer(base64Key);
@@ -44,13 +50,12 @@ async function performDH(privateKey: CryptoKey, publicKey: CryptoKey): Promise<A
   return await crypto.subtle.deriveBits(
     { name: 'ECDH', public: publicKey },
     privateKey,
-    256 // 256 bits = 32 bytes
+    256
   );
 }
 
 // Combine multiple DH results using HKDF
 async function kdf(inputs: ArrayBuffer[]): Promise<ArrayBuffer> {
-  // Concatenate all inputs
   const totalLength = inputs.reduce((sum, buf) => sum + buf.byteLength, 0);
   const combined = new Uint8Array(totalLength);
   let offset = 0;
@@ -59,7 +64,6 @@ async function kdf(inputs: ArrayBuffer[]): Promise<ArrayBuffer> {
     offset += input.byteLength;
   }
 
-  // Import as HKDF key
   const hkdfKey = await crypto.subtle.importKey(
     'raw',
     combined,
@@ -68,89 +72,151 @@ async function kdf(inputs: ArrayBuffer[]): Promise<ArrayBuffer> {
     ['deriveBits']
   );
 
-  // Derive final key material
   const sharedSecret = await crypto.subtle.deriveBits(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: new Uint8Array(32), // Zero salt for simplicity
+      salt: new Uint8Array(32),
       info: new TextEncoder().encode('MyNetRunner-X3DH'),
     },
     hkdfKey,
-    256 // 256 bits = 32 bytes
+    256
   );
 
   return sharedSecret;
 }
 
 // Generate an ephemeral key pair for this session
-async function generateEphemeralKeyPair(): Promise<CryptoKeyPair> {
-  return await crypto.subtle.generateKey(
+async function generateEphemeralKeyPair(): Promise<{ publicKey: string; privateKey: CryptoKey }> {
+  const keyPair = await crypto.subtle.generateKey(
     { name: 'ECDH', namedCurve: 'P-256' },
     true,
     ['deriveKey', 'deriveBits']
   );
+
+  const publicKeyBuffer = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+
+  return {
+    publicKey: arrayBufferToBase64(publicKeyBuffer),
+    privateKey: keyPair.privateKey,
+  };
 }
 
 /**
- * Perform X3DH key exchange as the initiator (person starting the conversation)
- * 
- * @param theirBundle - The recipient's prekey bundle from the server
- * @returns The derived shared secret (base64)
+ * Perform X3DH as INITIATOR (person starting the conversation)
  */
-export async function performX3DHInitiator(theirBundle: PreKeyBundle): Promise<string> {
-  console.log('Performing X3DH key exchange with:', theirBundle.username);
+export async function performX3DHInitiator(theirBundle: PreKeyBundle): Promise<X3DHResult> {
+  console.log('Performing X3DH key exchange (initiator) with:', theirBundle.username);
 
-  // Get our identity key pair
   const ourIdentity = await keyStorage.getIdentityKeyPair();
   if (!ourIdentity) {
     throw new Error('No identity key found. Please log in again.');
   }
 
-  // Import our private identity key
   const ourIdentityPrivate = await importPrivateKey(ourIdentity.privateKey);
-
-  // Import their public keys
   const theirIdentityPublic = await importPublicKey(theirBundle.identityKey);
   const theirSignedPreKeyPublic = await importPublicKey(theirBundle.signedPreKey);
 
-  // Generate ephemeral key pair for this session
-  const ephemeralKeyPair = await generateEphemeralKeyPair();
+  // Generate ephemeral key pair
+  const ephemeral = await generateEphemeralKeyPair();
 
-  // Perform the DH operations:
   // DH1: Our identity private + Their signed prekey public
   const dh1 = await performDH(ourIdentityPrivate, theirSignedPreKeyPublic);
   console.log('DH1 complete');
 
   // DH2: Our ephemeral private + Their identity public
-  const dh2 = await performDH(ephemeralKeyPair.privateKey, theirIdentityPublic);
+  const dh2 = await performDH(ephemeral.privateKey, theirIdentityPublic);
   console.log('DH2 complete');
 
   // DH3: Our ephemeral private + Their signed prekey public
-  const dh3 = await performDH(ephemeralKeyPair.privateKey, theirSignedPreKeyPublic);
+  const dh3 = await performDH(ephemeral.privateKey, theirSignedPreKeyPublic);
   console.log('DH3 complete');
 
-  // Collect DH results
   const dhResults = [dh1, dh2, dh3];
+  let usedOneTimePreKeyId: number | null = null;
 
-  // DH4 (optional): If they have a one-time prekey, use it for extra security
-  if (theirBundle.oneTimePreKey) {
+  // DH4 (optional): One-time prekey
+  if (theirBundle.oneTimePreKey && theirBundle.oneTimePreKeyId) {
     const theirOneTimePreKeyPublic = await importPublicKey(theirBundle.oneTimePreKey);
-    const dh4 = await performDH(ephemeralKeyPair.privateKey, theirOneTimePreKeyPublic);
+    const dh4 = await performDH(ephemeral.privateKey, theirOneTimePreKeyPublic);
     dhResults.push(dh4);
+    usedOneTimePreKeyId = theirBundle.oneTimePreKeyId;
     console.log('DH4 complete (with one-time prekey)');
   }
 
-  // Derive the shared secret using KDF
   const sharedSecret = await kdf(dhResults);
-  console.log('Shared secret derived');
+  console.log('Shared secret derived (initiator)');
 
-  // Return as base64
+  return {
+    sharedSecret: arrayBufferToBase64(sharedSecret),
+    ephemeralPublicKey: ephemeral.publicKey,
+    usedOneTimePreKeyId,
+  };
+}
+
+/**
+ * Perform X3DH as RESPONDER (person receiving the first message)
+ */
+export async function performX3DHResponder(
+  senderIdentityKey: string,
+  senderEphemeralKey: string,
+  usedOneTimePreKeyId: number | null
+): Promise<string> {
+  console.log('Performing X3DH key exchange (responder)');
+
+  // Get our keys
+  const ourIdentity = await keyStorage.getIdentityKeyPair();
+  if (!ourIdentity) {
+    throw new Error('No identity key found. Please log in again.');
+  }
+
+  const signedPreKey = await keyStorage.getSignedPreKey(1); // We use keyId 1
+  if (!signedPreKey) {
+    throw new Error('No signed prekey found. Please log in again.');
+  }
+
+  // Import keys
+  const ourIdentityPrivate = await importPrivateKey(ourIdentity.privateKey);
+  const ourSignedPreKeyPrivate = await importPrivateKey(signedPreKey.privateKey);
+  const senderIdentityPublic = await importPublicKey(senderIdentityKey);
+  const senderEphemeralPublic = await importPublicKey(senderEphemeralKey);
+
+  // DH1: Our signed prekey private + Their identity public (reverse of initiator's DH1)
+  const dh1 = await performDH(ourSignedPreKeyPrivate, senderIdentityPublic);
+  console.log('DH1 complete (responder)');
+
+  // DH2: Our identity private + Their ephemeral public (reverse of initiator's DH2)
+  const dh2 = await performDH(ourIdentityPrivate, senderEphemeralPublic);
+  console.log('DH2 complete (responder)');
+
+  // DH3: Our signed prekey private + Their ephemeral public (reverse of initiator's DH3)
+  const dh3 = await performDH(ourSignedPreKeyPrivate, senderEphemeralPublic);
+  console.log('DH3 complete (responder)');
+
+  const dhResults = [dh1, dh2, dh3];
+
+  // DH4 (optional): One-time prekey
+  if (usedOneTimePreKeyId !== null) {
+    const oneTimePreKey = await keyStorage.getOneTimePreKey(usedOneTimePreKeyId);
+    if (oneTimePreKey) {
+      const ourOneTimePreKeyPrivate = await importPrivateKey(oneTimePreKey.privateKey);
+      const dh4 = await performDH(ourOneTimePreKeyPrivate, senderEphemeralPublic);
+      dhResults.push(dh4);
+      console.log('DH4 complete (responder, with one-time prekey)');
+
+      // Delete the used one-time prekey
+      await keyStorage.deleteOneTimePreKey(usedOneTimePreKeyId);
+    }
+  }
+
+  const sharedSecret = await kdf(dhResults);
+  console.log('Shared secret derived (responder)');
+
   return arrayBufferToBase64(sharedSecret);
 }
 
 /**
- * Verify a signed prekey signature (optional but recommended)
+ * Verify a signed prekey signature
  */
 export async function verifySignedPreKey(
   identityKey: string,
@@ -159,8 +225,7 @@ export async function verifySignedPreKey(
 ): Promise<boolean> {
   try {
     const identityKeyBuffer = base64ToArrayBuffer(identityKey);
-    
-    // Import identity key for verification (ECDSA)
+
     const verifyKey = await crypto.subtle.importKey(
       'spki',
       identityKeyBuffer,
@@ -186,4 +251,4 @@ export async function verifySignedPreKey(
   }
 }
 
-export type { PreKeyBundle };
+export type { PreKeyBundle, X3DHResult };

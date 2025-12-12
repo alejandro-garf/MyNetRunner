@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, LogOut, MessageSquare } from 'lucide-react';
+import { Send, LogOut, MessageSquare, Lock } from 'lucide-react';
 import { initializeChatWebSocket, disconnectChatWebSocket, getChatWebSocket } from '../utils/websocket';
-import { getUsername, getToken, getUserId, authAPI } from '../utils/api';
+import { getUsername, getToken, getUserId, authAPI, userAPI } from '../utils/api';
 import type { PageType, Message } from '../types';
 
 interface ChatPageProps {
@@ -13,8 +13,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string } | null>(null);
   const [recipientUsername, setRecipientUsername] = useState('');
+  const [recipientId, setRecipientId] = useState<number | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLookingUpUser, setIsLookingUpUser] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Check authentication on component mount
@@ -22,13 +24,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     const token = getToken();
     const username = getUsername();
     const userId = getUserId();
-    
+
     if (!token || !username || !userId) {
-      // User is not logged in, redirect to home
       onNavigate('home');
       return;
     }
-    
+
     setCurrentUser({ id: userId, username });
     setIsLoading(false);
   }, [onNavigate]);
@@ -45,22 +46,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     const wsUrl = 'http://localhost:8080/ws';
     const chatWs = initializeChatWebSocket(wsUrl);
 
-    // Set up message handler
     const handleMessage = (message: Message) => {
       console.log('Message received in chat:', message);
       setMessages(prevMessages => [...prevMessages, message]);
     };
 
-    // Set up error handler
     const handleError = (error: string) => {
       console.error('WebSocket error:', error);
       setIsConnected(false);
     };
 
-    // Connect to WebSocket
     chatWs.connect(handleMessage, handleError);
-    
-    // Give it a moment to connect
+
     setTimeout(() => {
       const ws = getChatWebSocket();
       if (ws && ws.isConnected()) {
@@ -68,14 +65,33 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
       }
     }, 1000);
 
-    // Cleanup on unmount
     return () => {
       disconnectChatWebSocket();
       setIsConnected(false);
     };
   }, [currentUser]);
 
-  const handleSendMessage = () => {
+  // Look up recipient ID when username changes
+  useEffect(() => {
+    const lookupUser = async () => {
+      const trimmedUsername = recipientUsername.trim();
+
+      if (!trimmedUsername) {
+        setRecipientId(null);
+        return;
+      }
+
+      setIsLookingUpUser(true);
+      const user = await userAPI.getByUsername(trimmedUsername);
+      setRecipientId(user?.id || null);
+      setIsLookingUpUser(false);
+    };
+
+    const debounceTimer = setTimeout(lookupUser, 500);
+    return () => clearTimeout(debounceTimer);
+  }, [recipientUsername]);
+
+  const handleSendMessage = async () => {
     const trimmedMessage = newMessage.trim();
     const trimmedRecipient = recipientUsername.trim();
 
@@ -94,18 +110,38 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
       return;
     }
 
+    if (!recipientId) {
+      alert('Recipient not found. Please check the username.');
+      return;
+    }
+
     const chatWs = getChatWebSocket();
     if (chatWs && chatWs.isConnected()) {
-      // Send message via WebSocket with sender username
-      chatWs.sendChatMessage(currentUser.username, trimmedRecipient, trimmedMessage);
-      
-      // Clear input
+      // Send encrypted message via WebSocket
+      await chatWs.sendChatMessage(
+        currentUser.username,
+        trimmedRecipient,
+        recipientId,
+        trimmedMessage
+      );
+
+      // Add to local messages (optimistic update)
+      const localMessage: Message = {
+        id: Date.now(),
+        senderId: currentUser.id,
+        senderUsername: currentUser.username,
+        receiverId: recipientId,
+        content: trimmedMessage,
+        timestamp: new Date().toISOString(),
+        delivered: true,
+        isEncrypted: true,
+      };
+      setMessages(prev => [...prev, localMessage]);
+
       setNewMessage('');
-      
-      console.log('Message sent to:', trimmedRecipient);
+      console.log('Encrypted message sent to:', trimmedRecipient);
     } else {
       alert('WebSocket not connected. Please wait or refresh the page.');
-      console.warn('WebSocket not connected, message not sent');
     }
   };
 
@@ -121,13 +157,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
   };
 
   const handleLogout = () => {
-    // Clear token and redirect to home
     authAPI.logout();
     disconnectChatWebSocket();
     onNavigate('home');
   };
 
-  // Show loading state while checking authentication
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-indigo-50 flex items-center justify-center">
@@ -139,7 +173,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     );
   }
 
-  // Don't render if user is not authenticated (will redirect)
   if (!currentUser) {
     return null;
   }
@@ -155,17 +188,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
             </div>
             <div>
               <span className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">MyNetRunner Chat</span>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 flex items-center gap-1">
                 {isConnected ? '🟢 Connected' : '🔴 Disconnected'}
+                <Lock className="w-3 h-3 text-green-600 ml-1" />
+                <span className="text-green-600">E2E Encrypted</span>
               </p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2 sm:gap-3">
             <span className="text-sm text-gray-600 hidden sm:block">
               {currentUser.username}
             </span>
-            <button 
+            <button
               onClick={handleLogout}
               className="bg-red-600 text-white font-semibold px-4 sm:px-5 md:px-6 py-1.5 sm:py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base shadow-md flex items-center gap-2"
             >
@@ -191,18 +226,29 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
             className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-600 focus:outline-none"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Enter the exact username of the person you want to message
+            {isLookingUpUser ? (
+              'Looking up user...'
+            ) : recipientId ? (
+              <span className="text-green-600">✓ User found - messages will be encrypted</span>
+            ) : recipientUsername.trim() ? (
+              <span className="text-red-500">✗ User not found</span>
+            ) : (
+              'Enter the exact username of the person you want to message'
+            )}
           </p>
         </div>
 
         {/* Messages area */}
-        <div className="flex-1 bg-white rounded-lg shadow-md p-4 mb-4 overflow-y-auto">
+        <div className="flex-1 bg-white rounded-lg shadow-md p-4 mb-4 overflow-y-auto min-h-[300px]">
           {messages.length === 0 ? (
             <div className="flex-1 flex items-center justify-center h-full">
               <div className="text-center text-gray-500">
                 <Send className="w-12 h-12 mx-auto mb-4 text-gray-300" />
                 <p className="text-lg font-medium">No messages yet</p>
                 <p className="text-sm mt-1">Enter a recipient username and start chatting!</p>
+                <p className="text-xs mt-2 text-green-600 flex items-center justify-center gap-1">
+                  <Lock className="w-3 h-3" /> All messages are end-to-end encrypted
+                </p>
               </div>
             </div>
           ) : (
@@ -221,8 +267,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
                           : 'bg-white text-gray-900 shadow-sm border border-gray-200'
                       }`}
                     >
-                      <p className="text-xs font-semibold mb-1">
+                      <p className="text-xs font-semibold mb-1 flex items-center gap-1">
                         {isSentByMe ? 'You' : message.senderUsername}
+                        {message.isEncrypted && (
+                          <Lock className={`w-3 h-3 ${isSentByMe ? 'text-indigo-200' : 'text-green-600'}`} />
+                        )}
                       </p>
                       <p className="text-sm">{message.content}</p>
                       <p
@@ -250,14 +299,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder={
-                  recipientUsername
-                    ? "Type a message..."
-                    : "Enter a recipient username first..."
+                  recipientId
+                    ? "Type an encrypted message..."
+                    : "Enter a valid recipient username first..."
                 }
                 className="w-full px-4 py-3 border border-gray-300 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50 disabled:cursor-not-allowed"
                 rows={1}
                 style={{ minHeight: '48px', maxHeight: '120px' }}
-                disabled={!isConnected || !recipientUsername}
+                disabled={!isConnected || !recipientId}
                 maxLength={1000}
               />
               <p className="text-xs text-gray-500 mt-1">
@@ -266,7 +315,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
             </div>
             <button
               onClick={handleSendMessage}
-              disabled={!newMessage.trim() || !recipientUsername || !isConnected}
+              disabled={!newMessage.trim() || !recipientId || !isConnected}
               className="bg-indigo-600 text-white p-3 rounded-2xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105"
             >
               <Send className="w-5 h-5" />

@@ -2,8 +2,8 @@
 
 import { keyStorage } from './KeyStorage';
 import { fetchPreKeyBundle } from './KeyAPI';
-import { performX3DHInitiator, verifySignedPreKey } from './X3DH';
-import type { PreKeyBundle } from './X3DH';
+import { performX3DHInitiator, performX3DHResponder, verifySignedPreKey } from './X3DH';
+import type { X3DHResult } from './X3DH';
 
 interface Session {
   recipientId: number;
@@ -12,48 +12,37 @@ interface Session {
   createdAt: number;
 }
 
+interface InitiatorSession extends Session {
+  ephemeralPublicKey: string;
+  usedOneTimePreKeyId: number | null;
+}
+
 class SessionManagerClass {
-  // Cache of active sessions (also persisted to IndexedDB)
-  private sessionCache: Map<number, Session> = new Map();
 
   /**
-   * Get or create a session with another user
+   * Get existing session from IndexedDB (does NOT create new one)
    */
-  async getOrCreateSession(recipientId: number, recipientUsername?: string): Promise<Session> {
-    // Check cache first
-    if (this.sessionCache.has(recipientId)) {
-      console.log(`Using cached session for user ${recipientId}`);
-      return this.sessionCache.get(recipientId)!;
-    }
-
-    // Check IndexedDB
+  async getSession(recipientId: number): Promise<Session | null> {
     const storedSession = await keyStorage.getSession(recipientId);
     if (storedSession) {
-      const session: Session = {
+      return {
         recipientId: storedSession.recipientId,
-        recipientUsername: recipientUsername || `User ${recipientId}`,
+        recipientUsername: `User ${recipientId}`,
         sharedSecret: storedSession.sharedSecret,
         createdAt: storedSession.createdAt,
       };
-      this.sessionCache.set(recipientId, session);
-      console.log(`Loaded session from storage for user ${recipientId}`);
-      return session;
     }
-
-    // No existing session - create new one via X3DH
-    console.log(`Creating new session with user ${recipientId}`);
-    return await this.createSession(recipientId);
+    return null;
   }
 
   /**
-   * Create a new session with a user via X3DH key exchange
+   * Create a new session as INITIATOR (starting conversation)
    */
-  async createSession(recipientId: number): Promise<Session> {
-    // Fetch their prekey bundle from server
-    console.log(`Fetching prekey bundle for user ${recipientId}`);
+  async createInitiatorSession(recipientId: number): Promise<InitiatorSession> {
+    console.log(`Creating initiator session with user ${recipientId}`);
+
     const bundle = await fetchPreKeyBundle(recipientId);
 
-    // Verify the signed prekey (optional but recommended)
     const isValid = await verifySignedPreKey(
       bundle.identityKey,
       bundle.signedPreKey,
@@ -62,68 +51,81 @@ class SessionManagerClass {
 
     if (!isValid) {
       console.warn('Signed prekey verification failed - proceeding anyway for demo');
-      // In production, you might want to abort here
     } else {
       console.log('Signed prekey verified successfully');
     }
 
-    // Perform X3DH to derive shared secret
-    const sharedSecret = await performX3DHInitiator(bundle);
+    const x3dhResult: X3DHResult = await performX3DHInitiator(bundle);
 
-    // Create session object
-    const session: Session = {
+    const session: InitiatorSession = {
       recipientId: bundle.userId,
       recipientUsername: bundle.username,
-      sharedSecret,
+      sharedSecret: x3dhResult.sharedSecret,
+      ephemeralPublicKey: x3dhResult.ephemeralPublicKey,
+      usedOneTimePreKeyId: x3dhResult.usedOneTimePreKeyId,
       createdAt: Date.now(),
     };
 
-    // Store in IndexedDB
-    await keyStorage.storeSession(recipientId, sharedSecret);
+    await keyStorage.storeSession(recipientId, x3dhResult.sharedSecret);
 
-    // Cache it
-    this.sessionCache.set(recipientId, session);
-
-    console.log(`Session established with ${bundle.username}`);
+    console.log(`Initiator session established with ${bundle.username}`);
     return session;
   }
 
   /**
-   * Check if we have a session with a user
+   * Create a session as RESPONDER (receiving first message)
    */
-  async hasSession(recipientId: number): Promise<boolean> {
-    if (this.sessionCache.has(recipientId)) {
-      return true;
-    }
-    return await keyStorage.hasSession(recipientId);
+  async createResponderSession(
+    senderId: number,
+    senderUsername: string,
+    senderIdentityKey: string,
+    senderEphemeralKey: string,
+    usedOneTimePreKeyId: number | null
+  ): Promise<Session> {
+    console.log(`Creating responder session with user ${senderId}`);
+
+    const sharedSecret = await performX3DHResponder(
+      senderIdentityKey,
+      senderEphemeralKey,
+      usedOneTimePreKeyId
+    );
+
+    const session: Session = {
+      recipientId: senderId,
+      recipientUsername: senderUsername,
+      sharedSecret,
+      createdAt: Date.now(),
+    };
+
+    await keyStorage.storeSession(senderId, sharedSecret);
+
+    console.log(`Responder session established with ${senderUsername}`);
+    return session;
   }
 
   /**
-   * Get the shared secret for a user (for encryption/decryption)
+   * Get shared secret for encryption/decryption
    */
   async getSharedSecret(recipientId: number): Promise<string | null> {
-    const session = await this.getOrCreateSession(recipientId);
+    const session = await this.getSession(recipientId);
     return session?.sharedSecret || null;
   }
 
   /**
-   * Delete a session (e.g., when user wants to reset encryption)
+   * Check if session exists
    */
-  async deleteSession(recipientId: number): Promise<void> {
-    this.sessionCache.delete(recipientId);
-    await keyStorage.deleteSession(recipientId);
-    console.log(`Session deleted for user ${recipientId}`);
+  async hasSession(recipientId: number): Promise<boolean> {
+    return await keyStorage.hasSession(recipientId);
   }
 
   /**
-   * Clear all sessions (for logout)
+   * Delete a session
    */
-  async clearAllSessions(): Promise<void> {
-    this.sessionCache.clear();
-    // IndexedDB sessions are cleared by keyStorage.clearAll()
-    console.log('All sessions cleared');
+  async deleteSession(recipientId: number): Promise<void> {
+    await keyStorage.deleteSession(recipientId);
+    console.log(`Session deleted for user ${recipientId}`);
   }
 }
 
 export const sessionManager = new SessionManagerClass();
-export type { Session };
+export type { Session, InitiatorSession };

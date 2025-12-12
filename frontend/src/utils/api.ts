@@ -191,6 +191,20 @@ export const userAPI = {
       throw new Error('An unexpected error occurred');
     }
   },
+
+  // Get user by username (for encryption - need userId)
+  getByUsername: async (username: string): Promise<{ id: number; username: string } | null> => {
+    try {
+      const response = await api.get(`/api/users/by-username/${username}`);
+      return response.data;
+    } catch (error) {
+      if (error instanceof AxiosError && error.response?.status === 404) {
+        return null;
+      }
+      console.error('Failed to get user by username:', error);
+      return null;
+    }
+  },
 };
 
 export default api;

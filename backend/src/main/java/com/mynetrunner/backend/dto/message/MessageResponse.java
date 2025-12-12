@@ -19,6 +19,11 @@ public class MessageResponse {
     private LocalDateTime timestamp;
     private Boolean delivered;
 
+    // Key exchange fields
+    private String senderIdentityKey;
+    private String senderEphemeralKey;
+    private Integer usedOneTimePreKeyId;
+
     // Constructor for unencrypted messages
     public MessageResponse(Long id, Long senderId, String senderUsername, Long receiverId,
                           String content, LocalDateTime timestamp, Boolean delivered) {
