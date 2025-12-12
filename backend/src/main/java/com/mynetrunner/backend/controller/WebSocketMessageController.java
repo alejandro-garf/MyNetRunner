@@ -47,28 +47,22 @@ public class WebSocketMessageController {
     @MessageMapping("/send")
     public void sendMessage(@Valid @Payload MessageRequest request) {
         try {
-            System.out.println("=== RECEIVED MESSAGE REQUEST ===");
-            System.out.println("From: " + request.getSenderUsername());
-            System.out.println("To: " + request.getRecipientUsername());
-            System.out.println("Encrypted: " + request.getIsEncrypted());
-            System.out.println("Has key exchange: " + (request.getSenderIdentityKey() != null));
+            // PRIVACY: No logging of any message details
 
             // Check rate limit
             if (!rateLimitService.isAllowed(request.getSenderUsername(), "message", MESSAGE_MAX_ATTEMPTS, MESSAGE_WINDOW_SECONDS)) {
-                System.err.println("Rate limit exceeded for user: " + request.getSenderUsername());
                 messagingTemplate.convertAndSendToUser(
-                    request.getSenderUsername(),
-                    "/queue/errors",
-                    new ErrorMessage("Rate limit exceeded. Please slow down.")
-                );
+                        request.getSenderUsername(),
+                        "/queue/errors",
+                        new ErrorMessage("Rate limit exceeded. Please slow down."));
                 return;
             }
 
             User sender = userRepository.findByUsername(request.getSenderUsername())
-                    .orElseThrow(() -> new UserNotFoundException("Sender not found: " + request.getSenderUsername()));
+                    .orElseThrow(() -> new UserNotFoundException("Sender not found"));
 
             User receiver = userRepository.findByUsername(request.getRecipientUsername())
-                    .orElseThrow(() -> new UserNotFoundException("Recipient not found: " + request.getRecipientUsername()));
+                    .orElseThrow(() -> new UserNotFoundException("Recipient not found"));
 
             String contentToStore;
             String iv = null;
@@ -77,16 +71,13 @@ public class WebSocketMessageController {
             if (isEncrypted && request.getEncryptedContent() != null) {
                 contentToStore = request.getEncryptedContent();
                 iv = request.getIv();
-                System.out.println("Storing encrypted message (server cannot read)");
             } else {
                 contentToStore = sanitizationUtil.sanitize(request.getContent());
                 if (sanitizationUtil.containsDangerousContent(request.getContent())) {
-                    System.err.println("Dangerous content detected from user: " + request.getSenderUsername());
                     messagingTemplate.convertAndSendToUser(
-                        request.getSenderUsername(),
-                        "/queue/errors",
-                        new ErrorMessage("Message contains invalid content.")
-                    );
+                            request.getSenderUsername(),
+                            "/queue/errors",
+                            new ErrorMessage("Message contains invalid content."));
                     return;
                 }
             }
@@ -104,41 +95,34 @@ public class WebSocketMessageController {
             response.setSenderId(sender.getId());
             response.setSenderUsername(sender.getUsername());
             response.setReceiverId(receiver.getId());
-            response.setTimestamp(message.getTimestamp());
             response.setDelivered(message.getDelivered());
             response.setIsEncrypted(isEncrypted);
 
             if (isEncrypted) {
                 response.setEncryptedContent(message.getContent());
                 response.setIv(message.getIv());
-                // Pass through key exchange data
                 response.setSenderIdentityKey(request.getSenderIdentityKey());
                 response.setSenderEphemeralKey(request.getSenderEphemeralKey());
                 response.setUsedOneTimePreKeyId(request.getUsedOneTimePreKeyId());
+                // PRIVACY: Don't send server timestamp for encrypted messages
+                response.setTimestamp(null);
             } else {
                 response.setContent(message.getContent());
+                response.setTimestamp(message.getTimestamp());
             }
-
-            System.out.println("=== SENDING MESSAGE TO RECIPIENT ===");
 
             messagingTemplate.convertAndSendToUser(
                     receiver.getUsername(),
                     "/queue/messages",
                     response);
 
-            System.out.println("Message sent to user: " + receiver.getUsername());
-
+            // Immediately delete after delivery
             messageService.markAsDelivered(message.getId());
 
-            System.out.println("=== MESSAGE PROCESSING COMPLETE ===");
-
         } catch (UserNotFoundException e) {
-            System.err.println("User not found: " + e.getMessage());
             throw e;
         } catch (Exception e) {
-            System.err.println("Failed to deliver message: " + e.getMessage());
-            e.printStackTrace();
-            throw new MessageDeliveryException("Failed to deliver message: " + e.getMessage());
+            throw new MessageDeliveryException("Failed to deliver message");
         }
     }
 
@@ -151,7 +135,12 @@ public class WebSocketMessageController {
             this.timestamp = System.currentTimeMillis();
         }
 
-        public String getError() { return error; }
-        public long getTimestamp() { return timestamp; }
+        public String getError() {
+            return error;
+        }
+
+        public long getTimestamp() {
+            return timestamp;
+        }
     }
 }

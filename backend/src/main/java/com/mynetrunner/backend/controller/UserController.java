@@ -1,5 +1,8 @@
 package com.mynetrunner.backend.controller;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -8,9 +11,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.mynetrunner.backend.model.User;
 import com.mynetrunner.backend.service.UserService;
-
-import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/users")

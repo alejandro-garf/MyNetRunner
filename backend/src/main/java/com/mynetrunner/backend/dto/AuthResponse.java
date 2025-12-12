@@ -2,23 +2,26 @@ package com.mynetrunner.backend.dto;
 
 public class AuthResponse {
     private String token;
+    private String refreshToken;
     private String username;
     private Long userId;
     private String message;
 
-    // Constructor with userId
-    public AuthResponse(String token, String username, Long userId, String message) {
+    // Full constructor
+    public AuthResponse(String token, String refreshToken, String username, Long userId, String message) {
         this.token = token;
+        this.refreshToken = refreshToken;
         this.username = username;
         this.userId = userId;
         this.message = message;
     }
 
-    // Old constructor for backward compatibility (if needed)
-    public AuthResponse(String token, String username, String message) {
+    // Constructor without refresh token
+    public AuthResponse(String token, String username, Long userId, String message) {
         this.token = token;
+        this.refreshToken = null;
         this.username = username;
-        this.userId = null;
+        this.userId = userId;
         this.message = message;
     }
 
@@ -29,6 +32,14 @@ public class AuthResponse {
 
     public void setToken(String token) {
         this.token = token;
+    }
+
+    public String getRefreshToken() {
+        return refreshToken;
+    }
+
+    public void setRefreshToken(String refreshToken) {
+        this.refreshToken = refreshToken;
     }
 
     public String getUsername() {

@@ -6,16 +6,17 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.mynetrunner.backend.dto.AuthResponse;
 import com.mynetrunner.backend.dto.LoginRequest;
 import com.mynetrunner.backend.dto.RegisterRequest;
+import com.mynetrunner.backend.model.User;
+import com.mynetrunner.backend.repository.UserRepository;
+import com.mynetrunner.backend.service.MessageService;
 import com.mynetrunner.backend.service.RateLimitService;
 import com.mynetrunner.backend.service.TokenBlacklistService;
 import com.mynetrunner.backend.service.UserService;
@@ -40,6 +41,12 @@ public class AuthController {
     @Autowired
     private RateLimitService rateLimitService;
 
+    @Autowired
+    private MessageService messageService;
+
+    @Autowired
+    private UserRepository userRepository;
+
     /**
      * Register a new user
      */
@@ -62,15 +69,12 @@ public class AuthController {
     }
 
     /**
-     * Login user and return JWT tokens
+     * Login user and return JWT token
      */
     @PostMapping("/login")
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         try {
             AuthResponse authResponse = userService.login(request.getUsername(), request.getPassword());
-
-            // Generate refresh token
-            String refreshToken = jwtUtil.generateRefreshToken(request.getUsername());
 
             // Reset rate limit on successful login
             String clientIp = getClientIp(httpRequest);
@@ -79,7 +83,7 @@ public class AuthController {
             Map<String, Object> response = new HashMap<>();
             response.put("message", authResponse.getMessage());
             response.put("token", authResponse.getToken());
-            response.put("refreshToken", refreshToken);
+            response.put("refreshToken", authResponse.getRefreshToken());
             response.put("username", authResponse.getUsername());
             response.put("userId", authResponse.getUserId());
 
@@ -92,80 +96,86 @@ public class AuthController {
     }
 
     /**
-     * Refresh access token using refresh token
+     * Refresh access token
      */
     @PostMapping("/refresh")
     public ResponseEntity<?> refresh(@RequestBody Map<String, String> request) {
         String refreshToken = request.get("refreshToken");
 
         if (refreshToken == null || refreshToken.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Refresh token is required"));
+            return ResponseEntity.badRequest().body(Map.of("error", "Refresh token required"));
         }
 
-        // Check if refresh token is blacklisted
+        // Check if token is blacklisted
         if (tokenBlacklistService.isBlacklisted(refreshToken)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Refresh token has been revoked"));
-        }
-
-        // Validate refresh token
-        if (!jwtUtil.validateRefreshToken(refreshToken)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid or expired refresh token"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Token has been revoked"));
         }
 
         try {
+            // Validate it's a refresh token
+            if (!jwtUtil.isRefreshToken(refreshToken)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid refresh token"));
+            }
+
             String username = jwtUtil.extractUsername(refreshToken);
 
-            // Generate new access token
-            String newAccessToken = jwtUtil.generateToken(username);
+            if (username != null && jwtUtil.validateToken(refreshToken)) {
+                String newAccessToken = jwtUtil.generateToken(username);
+                return ResponseEntity.ok(Map.of("token", newAccessToken));
+            }
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("token", newAccessToken);
-            response.put("username", username);
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid refresh token"));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Failed to refresh token"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Token refresh failed"));
         }
     }
 
     /**
-     * Logout user - blacklist current tokens
+     * Logout user - blacklist tokens and delete pending messages
      */
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(
-            @RequestHeader("Authorization") String authHeader,
-            @RequestBody(required = false) Map<String, String> request,
-            Authentication authentication) {
+    public ResponseEntity<?> logout(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
+        String authHeader = httpRequest.getHeader("Authorization");
 
-        // Blacklist access token
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String accessToken = authHeader.substring(7);
-            tokenBlacklistService.blacklistToken(accessToken);
-        }
+            String token = authHeader.substring(7);
 
-        // Blacklist refresh token if provided
-        if (request != null && request.containsKey("refreshToken")) {
+            // Get username before blacklisting
+            String username = null;
+            try {
+                username = jwtUtil.extractUsername(token);
+            } catch (Exception e) {
+                // Token might be expired, continue with logout
+            }
+
+            // Blacklist the access token
+            tokenBlacklistService.blacklistToken(token);
+
+            // Blacklist refresh token if provided
             String refreshToken = request.get("refreshToken");
-            tokenBlacklistService.blacklistToken(refreshToken);
+            if (refreshToken != null && !refreshToken.isEmpty()) {
+                tokenBlacklistService.blacklistToken(refreshToken);
+            }
+
+            // Delete any pending messages for this user (privacy)
+            if (username != null) {
+                User user = userRepository.findByUsername(username).orElse(null);
+                if (user != null) {
+                    messageService.deleteAllMessagesForUser(user.getId());
+                }
+            }
+
+            return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
         }
 
-        return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
+        return ResponseEntity.badRequest().body(Map.of("error", "No token provided"));
     }
 
-    /**
-     * Get client IP address (handles proxies)
-     */
     private String getClientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isEmpty()) {
-            return forwardedFor.split(",")[0].trim();
+        String xForwardedFor = request.getHeader("X-Forwarded-For");
+        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
+            return xForwardedFor.split(",")[0].trim();
         }
-
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isEmpty()) {
-            return realIp;
-        }
-
         return request.getRemoteAddr();
     }
 }

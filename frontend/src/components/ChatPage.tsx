@@ -20,7 +20,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
   const [isLookingUpUser, setIsLookingUpUser] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Check authentication on component mount
   useEffect(() => {
     const token = getToken();
     const username = getUsername();
@@ -35,12 +34,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     setIsLoading(false);
   }, [onNavigate]);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Initialize WebSocket connection only when user is authenticated
   useEffect(() => {
     if (!currentUser) return;
 
@@ -48,7 +45,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     const chatWs = initializeChatWebSocket(wsUrl);
 
     const handleMessage = (message: Message) => {
-      console.log('Message received in chat:', message);
+      console.log('Message received');
+      
+      // PRIVACY: Generate timestamp locally if server didn't send one
+      if (!message.timestamp) {
+        message.timestamp = new Date().toISOString();
+      }
+      
       setMessages(prevMessages => [...prevMessages, message]);
     };
 
@@ -72,18 +75,32 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     };
   }, [currentUser]);
 
-  // Start prekey replenishment when chat loads
   useEffect(() => {
     if (!currentUser) return;
 
-    const stopReplenishment = startPreKeyReplenishment(60000); // Check every minute
+    const stopReplenishment = startPreKeyReplenishment(60000);
 
     return () => {
       stopReplenishment();
     };
   }, [currentUser]);
 
-  // Look up recipient ID when username changes
+  useEffect(() => {
+    let hiddenTime: number | null = null;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenTime = Date.now();
+      } else if (hiddenTime && Date.now() - hiddenTime > 5 * 60 * 1000) {
+        setMessages([]);
+        console.log('Messages cleared due to inactivity');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   useEffect(() => {
     const lookupUser = async () => {
       const trimmedUsername = recipientUsername.trim();
@@ -129,7 +146,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
 
     const chatWs = getChatWebSocket();
     if (chatWs && chatWs.isConnected()) {
-      // Send encrypted message via WebSocket
       await chatWs.sendChatMessage(
         currentUser.username,
         trimmedRecipient,
@@ -137,7 +153,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
         trimmedMessage
       );
 
-      // Add to local messages (optimistic update)
+      // Local timestamp - server doesn't track this
       const localMessage: Message = {
         id: Date.now(),
         senderId: currentUser.id,
@@ -151,7 +167,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
       setMessages(prev => [...prev, localMessage]);
 
       setNewMessage('');
-      console.log('Encrypted message sent to:', trimmedRecipient);
     } else {
       alert('WebSocket not connected. Please wait or refresh the page.');
     }

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,25 +25,18 @@ public class MessageService {
     private UserRepository userRepository;
 
     /**
-     * Send a message (temporarily store until delivered) - unencrypted
+     * Send a message - stored only until delivered (max 5 minutes)
      */
     public Message sendMessage(Long senderId, Long receiverId, String content) {
         return sendMessage(senderId, receiverId, content, null, false);
     }
 
-    /**
-     * Send a message (temporarily store until delivered) - with encryption support
-     */
     public Message sendMessage(Long senderId, Long receiverId, String content, String iv, boolean isEncrypted) {
-        // Verify sender exists
-        User sender = userRepository.findById(senderId)
+        userRepository.findById(senderId)
                 .orElseThrow(() -> new RuntimeException("Sender not found"));
-
-        // Verify receiver exists
-        User receiver = userRepository.findById(receiverId)
+        userRepository.findById(receiverId)
                 .orElseThrow(() -> new RuntimeException("Receiver not found"));
 
-        // Create and save message
         Message message = new Message();
         message.setSenderId(senderId);
         message.setReceiverId(receiverId);
@@ -51,9 +45,7 @@ public class MessageService {
         message.setIsEncrypted(isEncrypted);
         message.setDelivered(false);
 
-        Message savedMessage = messageRepository.save(message);
-
-        return savedMessage;
+        return messageRepository.save(message);
     }
 
     /**
@@ -73,28 +65,35 @@ public class MessageService {
     }
 
     /**
-     * Mark message as delivered and DELETE from server (privacy-focused)
+     * Mark as delivered AND immediately delete - privacy focused
      */
     @Transactional
     public void markAsDelivered(Long messageId) {
-        Message message = messageRepository.findById(messageId)
-                .orElseThrow(() -> new RuntimeException("Message not found"));
-
-        // Immediately delete from database after delivery
         messageRepository.deleteById(messageId);
     }
 
     /**
-     * Delete expired messages (called by scheduled job)
+     * Delete expired messages - runs every minute
      */
+    @Scheduled(fixedRate = 60000)
     @Transactional
     public void deleteExpiredMessages() {
-        messageRepository.deleteExpiredMessages(LocalDateTime.now());
+        int deleted = messageRepository.deleteExpiredMessages(LocalDateTime.now());
+        if (deleted > 0) {
+            System.out.println("Cleaned up " + deleted + " expired messages");
+        }
     }
 
     /**
-     * Convert Message entity to MessageResponse DTO
+     * Delete ALL messages for a user (called on logout)
      */
+    @Transactional
+    public void deleteAllMessagesForUser(Long userId) {
+        messageRepository.deleteBySenderId(userId);
+        messageRepository.deleteByReceiverId(userId);
+        System.out.println("Deleted all messages for user: " + userId);
+    }
+
     private MessageResponse convertToResponse(Message message, String senderUsername) {
         if (Boolean.TRUE.equals(message.getIsEncrypted())) {
             return new MessageResponse(
@@ -102,7 +101,7 @@ public class MessageService {
                     message.getSenderId(),
                     senderUsername,
                     message.getReceiverId(),
-                    message.getContent(), // encrypted content
+                    message.getContent(),
                     message.getIv(),
                     message.getTimestamp(),
                     message.getDelivered());

@@ -2,11 +2,14 @@ import axios, { AxiosError } from 'axios';
 import type { AuthCredentials, RegisterCredentials, AuthResponse } from '../types';
 import { keyStorage } from '../crypto/KeyStorage';
 
-// Create axios instance with default config
+// Create axios instance with no-cache headers for privacy
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
   headers: {
     'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
   },
 });
 
@@ -145,7 +148,7 @@ export const authAPI = {
     }
   },
 
-  // Logout user
+  // Logout user - clears all local data including encryption keys
   logout: async (): Promise<void> => {
     try {
       const token = getToken();
@@ -161,8 +164,8 @@ export const authAPI = {
       removeTokens();
       localStorage.removeItem('username');
       localStorage.removeItem('userId');
-      
-      // Clear encryption keys
+
+      // Clear encryption keys (privacy)
       try {
         await keyStorage.clearAll();
         console.log('Encryption keys cleared');
