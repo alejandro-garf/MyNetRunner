@@ -25,24 +25,20 @@ public class JwtUtil {
     @Value("${jwt.expiration}")
     private Long expiration;
 
-    // Refresh token lasts 7 days
     private static final long REFRESH_EXPIRATION = 7 * 24 * 60 * 60 * 1000L;
 
-    // Generate access token for user
     public String generateToken(String username) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("type", "access");
         return createToken(claims, username, expiration);
     }
 
-    // Generate refresh token for user
     public String generateRefreshToken(String username) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("type", "refresh");
         return createToken(claims, username, REFRESH_EXPIRATION);
     }
 
-    // Create JWT token
     private String createToken(Map<String, Object> claims, String subject, Long expirationTime) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expirationTime);
@@ -58,22 +54,18 @@ public class JwtUtil {
                 .compact();
     }
 
-    // Extract username from token
     public String extractUsername(String token) {
         return extractAllClaims(token).getSubject();
     }
 
-    // Extract expiration date from token
     public Date extractExpiration(String token) {
         return extractAllClaims(token).getExpiration();
     }
 
-    // Extract token type (access or refresh)
     public String extractTokenType(String token) {
         return (String) extractAllClaims(token).get("type");
     }
 
-    // Extract all claims from token
     private Claims extractAllClaims(String token) {
         SecretKey key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         return Jwts.parser()
@@ -83,7 +75,6 @@ public class JwtUtil {
                 .getPayload();
     }
 
-    // Check if token is expired
     public Boolean isTokenExpired(String token) {
         try {
             return extractExpiration(token).before(new Date());
@@ -92,7 +83,6 @@ public class JwtUtil {
         }
     }
 
-    // Validate token
     public Boolean validateToken(String token, String username) {
         try {
             final String extractedUsername = extractUsername(token);
@@ -102,7 +92,24 @@ public class JwtUtil {
         }
     }
 
-    // Validate refresh token specifically
+    public Boolean validateToken(String token) {
+        try {
+            extractUsername(token);
+            return !isTokenExpired(token);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public Boolean isRefreshToken(String token) {
+        try {
+            String type = extractTokenType(token);
+            return "refresh".equals(type);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public Boolean validateRefreshToken(String token) {
         try {
             String type = extractTokenType(token);

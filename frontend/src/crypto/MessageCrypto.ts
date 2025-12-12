@@ -1,14 +1,65 @@
-// AES-256-GCM Message Encryption/Decryption
+// AES-256-GCM Message Encryption/Decryption with Padding
 
 import { base64ToArrayBuffer, arrayBufferToBase64 } from './KeyGenerator';
 
 interface EncryptedMessage {
-  ciphertext: string;  // Base64 encoded
-  iv: string;          // Base64 encoded (12 bytes)
+  ciphertext: string;
+  iv: string;
+}
+
+// All messages padded to 4KB (hides actual message length)
+const PADDED_SIZE = 4096;
+
+// Pad message to fixed size
+function padMessage(plaintext: string): ArrayBuffer {
+  const encoder = new TextEncoder();
+  const messageBytes = encoder.encode(plaintext);
+
+  const maxMessageSize = PADDED_SIZE - 4;
+
+  if (messageBytes.length > maxMessageSize) {
+    throw new Error(`Message too long (max ${maxMessageSize} bytes)`);
+  }
+
+  const padded = new Uint8Array(PADDED_SIZE);
+
+  // First 4 bytes: message length (little-endian)
+  padded[0] = messageBytes.length & 0xff;
+  padded[1] = (messageBytes.length >> 8) & 0xff;
+  padded[2] = (messageBytes.length >> 16) & 0xff;
+  padded[3] = (messageBytes.length >> 24) & 0xff;
+
+  // Copy message after length prefix
+  padded.set(messageBytes, 4);
+
+  // Fill rest with random bytes
+  const randomPadding = crypto.getRandomValues(new Uint8Array(PADDED_SIZE - 4 - messageBytes.length));
+  padded.set(randomPadding, 4 + messageBytes.length);
+
+  return padded.buffer as ArrayBuffer;
+}
+
+// Remove padding and extract original message
+function unpadMessage(padded: ArrayBuffer): string {
+  const bytes = new Uint8Array(padded);
+  
+  // Read length from first 4 bytes
+  const messageLength = bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24);
+
+  // Validate length
+  if (messageLength < 0 || messageLength > PADDED_SIZE - 4) {
+    throw new Error('Invalid message length');
+  }
+
+  // Extract message bytes
+  const messageBytes = bytes.slice(4, 4 + messageLength);
+
+  const decoder = new TextDecoder();
+  return decoder.decode(messageBytes);
 }
 
 /**
- * Encrypt a message using AES-256-GCM
+ * Encrypt a message using AES-256-GCM with fixed-size padding
  */
 export async function encryptMessage(
   plaintext: string,
@@ -23,23 +74,27 @@ export async function encryptMessage(
     ['encrypt']
   );
 
+  // Generate random 12-byte IV
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plaintextBytes = new TextEncoder().encode(plaintext);
 
+  // Pad message to fixed size before encryption
+  const paddedMessage = padMessage(plaintext);
+
+  // Encrypt
   const ciphertextBuffer = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     aesKey,
-    plaintextBytes
+    paddedMessage
   );
 
   return {
     ciphertext: arrayBufferToBase64(ciphertextBuffer),
-    iv: arrayBufferToBase64(iv.buffer),
+    iv: arrayBufferToBase64(iv.buffer as ArrayBuffer),
   };
 }
 
 /**
- * Decrypt a message using AES-256-GCM
+ * Decrypt a message using AES-256-GCM and remove padding
  */
 export async function decryptMessage(
   encrypted: EncryptedMessage,
@@ -57,22 +112,29 @@ export async function decryptMessage(
   const iv = new Uint8Array(base64ToArrayBuffer(encrypted.iv));
   const ciphertextBuffer = base64ToArrayBuffer(encrypted.ciphertext);
 
-  const plaintextBuffer = await crypto.subtle.decrypt(
+  // Decrypt
+  const paddedBuffer = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
     aesKey,
     ciphertextBuffer
   );
 
-  return new TextDecoder().decode(plaintextBuffer);
+  // Remove padding and return original message
+  return unpadMessage(paddedBuffer);
 }
 
 /**
  * Check if a message object is encrypted
  */
-export function isEncryptedMessage(message: any): boolean {
-  return message && 
-         typeof message.ciphertext === 'string' && 
-         typeof message.iv === 'string';
+export function isEncryptedMessage(message: unknown): boolean {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'ciphertext' in message &&
+    'iv' in message &&
+    typeof (message as EncryptedMessage).ciphertext === 'string' &&
+    typeof (message as EncryptedMessage).iv === 'string'
+  );
 }
 
 export type { EncryptedMessage };
