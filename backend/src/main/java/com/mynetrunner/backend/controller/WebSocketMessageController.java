@@ -14,12 +14,17 @@ import com.mynetrunner.backend.model.Message;
 import com.mynetrunner.backend.model.User;
 import com.mynetrunner.backend.repository.UserRepository;
 import com.mynetrunner.backend.service.MessageService;
+import com.mynetrunner.backend.service.RateLimitService;
 import com.mynetrunner.backend.service.WebSocketSessionManager;
 
 import jakarta.validation.Valid;
 
 @Controller
 public class WebSocketMessageController {
+
+    // Rate limit: 30 messages per 60 seconds per user
+    private static final int MESSAGE_MAX_ATTEMPTS = 30;
+    private static final int MESSAGE_WINDOW_SECONDS = 60;
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
@@ -29,9 +34,12 @@ public class WebSocketMessageController {
 
     @Autowired
     private UserRepository userRepository;
-    
+
     @Autowired
     private WebSocketSessionManager sessionManager;
+
+    @Autowired
+    private RateLimitService rateLimitService;
 
     @MessageMapping("/send")
     public void sendMessage(@Valid @Payload MessageRequest request) {
@@ -39,14 +47,27 @@ public class WebSocketMessageController {
             System.out.println("=== RECEIVED MESSAGE REQUEST ===");
             System.out.println("From: " + request.getSenderUsername());
             System.out.println("To: " + request.getRecipientUsername());
-            
+
+            // Check rate limit for sender
+            if (!rateLimitService.isAllowed(request.getSenderUsername(), "message", MESSAGE_MAX_ATTEMPTS, MESSAGE_WINDOW_SECONDS)) {
+                System.err.println("Rate limit exceeded for user: " + request.getSenderUsername());
+                
+                // Send error back to sender
+                messagingTemplate.convertAndSendToUser(
+                    request.getSenderUsername(),
+                    "/queue/errors",
+                    new ErrorMessage("Rate limit exceeded. Please slow down.")
+                );
+                return;
+            }
+
             // Find sender by username
             User sender = userRepository.findByUsername(request.getSenderUsername())
-                .orElseThrow(() -> new UserNotFoundException("Sender not found: " + request.getSenderUsername()));
+                    .orElseThrow(() -> new UserNotFoundException("Sender not found: " + request.getSenderUsername()));
 
             // Find receiver by username
             User receiver = userRepository.findByUsername(request.getRecipientUsername())
-                .orElseThrow(() -> new UserNotFoundException("Recipient not found: " + request.getRecipientUsername()));
+                    .orElseThrow(() -> new UserNotFoundException("Recipient not found: " + request.getRecipientUsername()));
 
             // Check if receiver is connected
             String receiverSessionId = sessionManager.getSessionId(receiver.getUsername());
@@ -54,39 +75,36 @@ public class WebSocketMessageController {
 
             // Create and save message temporarily
             Message message = messageService.sendMessage(
-                sender.getId(),
-                receiver.getId(),
-                request.getContent()
-            );
+                    sender.getId(),
+                    receiver.getId(),
+                    request.getContent());
 
             // Create response with all details
             MessageResponse response = new MessageResponse(
-                message.getId(),
-                sender.getId(),
-                sender.getUsername(),
-                receiver.getId(),
-                message.getContent(),
-                message.getTimestamp(),
-                message.getDelivered()
-            );
+                    message.getId(),
+                    sender.getId(),
+                    sender.getUsername(),
+                    receiver.getId(),
+                    message.getContent(),
+                    message.getTimestamp(),
+                    message.getDelivered());
 
             System.out.println("=== ATTEMPTING TO SEND MESSAGE ===");
-            
+
             // Try sending using username-based routing
             messagingTemplate.convertAndSendToUser(
-                receiver.getUsername(),
-                "/queue/messages",
-                response
-            );
-            
+                    receiver.getUsername(),
+                    "/queue/messages",
+                    response);
+
             System.out.println("Message sent to user: " + receiver.getUsername());
             System.out.println("Expected destination: /user/" + receiver.getUsername() + "/queue/messages");
 
             // Mark as delivered and delete from server
             messageService.markAsDelivered(message.getId());
-            
+
             System.out.println("=== MESSAGE PROCESSING COMPLETE ===");
-            
+
         } catch (UserNotFoundException e) {
             System.err.println("User not found: " + e.getMessage());
             throw e;
@@ -94,6 +112,25 @@ public class WebSocketMessageController {
             System.err.println("Failed to deliver message: " + e.getMessage());
             e.printStackTrace();
             throw new MessageDeliveryException("Failed to deliver message: " + e.getMessage());
+        }
+    }
+
+    // Simple error message class
+    private static class ErrorMessage {
+        private final String error;
+        private final long timestamp;
+
+        public ErrorMessage(String error) {
+            this.error = error;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public String getError() {
+            return error;
+        }
+
+        public long getTimestamp() {
+            return timestamp;
         }
     }
 }

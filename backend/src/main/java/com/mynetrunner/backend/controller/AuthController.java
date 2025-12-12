@@ -16,10 +16,12 @@ import org.springframework.web.bind.annotation.RestController;
 import com.mynetrunner.backend.dto.AuthResponse;
 import com.mynetrunner.backend.dto.LoginRequest;
 import com.mynetrunner.backend.dto.RegisterRequest;
+import com.mynetrunner.backend.service.RateLimitService;
 import com.mynetrunner.backend.service.TokenBlacklistService;
 import com.mynetrunner.backend.service.UserService;
 import com.mynetrunner.backend.util.JwtUtil;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 @RestController
@@ -34,6 +36,9 @@ public class AuthController {
 
     @Autowired
     private TokenBlacklistService tokenBlacklistService;
+
+    @Autowired
+    private RateLimitService rateLimitService;
 
     /**
      * Register a new user
@@ -60,12 +65,16 @@ public class AuthController {
      * Login user and return JWT tokens
      */
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         try {
             AuthResponse authResponse = userService.login(request.getUsername(), request.getPassword());
 
             // Generate refresh token
             String refreshToken = jwtUtil.generateRefreshToken(request.getUsername());
+
+            // Reset rate limit on successful login
+            String clientIp = getClientIp(httpRequest);
+            rateLimitService.resetLimit(clientIp, "login");
 
             Map<String, Object> response = new HashMap<>();
             response.put("message", authResponse.getMessage());
@@ -141,5 +150,22 @@ public class AuthController {
         }
 
         return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
+    }
+
+    /**
+     * Get client IP address (handles proxies)
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isEmpty()) {
+            return forwardedFor.split(",")[0].trim();
+        }
+
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isEmpty()) {
+            return realIp;
+        }
+
+        return request.getRemoteAddr();
     }
 }
