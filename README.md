@@ -72,7 +72,7 @@
 - [x] Add JWT filter to validate tokens on protected endpoints
 - [x] Implement token refresh mechanism
 - [x] Add token blacklist for logout (store in Redis)
-- [ ] Secure WebSocket connections with JWT validation
+- [x] Secure WebSocket connections with JWT validation
 
 #### Rate Limiting
 - [x] Implement rate limiting for auth endpoints (prevent brute force)
@@ -88,14 +88,14 @@
 ### Phase 3: End-to-End Encryption ⬜ FUTURE
 
 #### Signal Protocol Implementation
-- [ ] Research Signal Protocol / libsignal library
-- [ ] Implement key pair generation (client-side)
-- [ ] Create key exchange endpoints:
+- [x] Research Signal Protocol / libsignal library
+- [x] Implement key pair generation (client-side)
+- [x] Create key exchange endpoints:
   - `POST /api/keys/bundle` - Upload prekey bundle
   - `GET /api/keys/{userId}/bundle` - Get user's prekey bundle
-- [ ] Store public keys on server (private keys stay on client)
-- [ ] Server only relays encrypted blobs (zero-knowledge)
-- [ ] Implement Double Ratchet algorithm for forward secrecy
+- [x] Store public keys on server (private keys stay on client)
+- [x] Server only relays encrypted blobs (zero-knowledge)
+- [x] Implement Double Ratchet algorithm for forward secrecy
 
 ---
 
@@ -108,22 +108,6 @@
 - [ ] Implement group CRUD endpoints
 - [ ] Implement group message routing via WebSocket
 - [ ] Sender keys for efficient group E2E encryption
-
-#### Typing Indicators
-- [ ] Create WebSocket endpoint for typing status
-- [ ] Broadcast typing indicators to conversation participants
-- [ ] Auto-expire typing status after timeout
-
-#### Read Receipts
-- [ ] Add `readAt` field to Message entity
-- [ ] Create endpoint to mark messages as read
-- [ ] Broadcast read receipts via WebSocket
-
-#### File Attachments
-- [ ] Set up file storage (local or S3)
-- [ ] Create upload endpoint with size/type validation
-- [ ] Encrypt files client-side before upload
-- [ ] Generate secure download URLs
 
 ---
 
@@ -139,9 +123,8 @@
 
 ### Phase 2: Polish ⬜ TODO
 - [ ] User presence indicators (online/offline dots)
-- [ ] Subscribe to `/topic/presence` for live updates
 - [ ] Error handling and loading states
-- [ ] Responsive design / mobile support
+- [ ] Responsive design 
 - [ ] Message timestamps and formatting
 
 ### Phase 3: Future ⬜ FUTURE
@@ -150,23 +133,6 @@
 - [ ] Typing indicators
 - [ ] Read receipts UI
 - [ ] File upload UI
-
----
-
-## 🧪 Testing Tasks (Lawrence)
-
-### Backend Testing
-- [ ] Unit tests for UserService
-- [ ] Unit tests for MessageService
-- [ ] Unit tests for WebSocketSessionManager
-- [ ] Integration tests for AuthController
-- [ ] Integration tests for WebSocket messaging
-- [ ] Load testing for WebSocket connections
-
-### Frontend Testing
-- [ ] Component tests for auth pages
-- [ ] Component tests for chat page
-- [ ] E2E tests with Cypress or Playwright
 
 ---
 

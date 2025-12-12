@@ -13,9 +13,9 @@ import com.mynetrunner.backend.exception.UserNotFoundException;
 import com.mynetrunner.backend.model.Message;
 import com.mynetrunner.backend.model.User;
 import com.mynetrunner.backend.repository.UserRepository;
+import com.mynetrunner.backend.service.FriendshipService;
 import com.mynetrunner.backend.service.MessageService;
 import com.mynetrunner.backend.service.RateLimitService;
-import com.mynetrunner.backend.service.WebSocketSessionManager;
 import com.mynetrunner.backend.util.SanitizationUtil;
 
 import jakarta.validation.Valid;
@@ -36,18 +36,18 @@ public class WebSocketMessageController {
     private UserRepository userRepository;
 
     @Autowired
-    private WebSocketSessionManager sessionManager;
-
-    @Autowired
     private RateLimitService rateLimitService;
 
     @Autowired
     private SanitizationUtil sanitizationUtil;
 
+    @Autowired
+    private FriendshipService friendshipService;
+
     @MessageMapping("/send")
     public void sendMessage(@Valid @Payload MessageRequest request) {
         try {
-            // PRIVACY: No logging of any message details
+            // PRIVACY: No logging
 
             // Check rate limit
             if (!rateLimitService.isAllowed(request.getSenderUsername(), "message", MESSAGE_MAX_ATTEMPTS, MESSAGE_WINDOW_SECONDS)) {
@@ -63,6 +63,15 @@ public class WebSocketMessageController {
 
             User receiver = userRepository.findByUsername(request.getRecipientUsername())
                     .orElseThrow(() -> new UserNotFoundException("Recipient not found"));
+
+            // Check if users are friends (optional - comment out to disable)
+            // if (!friendshipService.areFriends(sender.getId(), receiver.getId())) {
+            //     messagingTemplate.convertAndSendToUser(
+            //             request.getSenderUsername(),
+            //             "/queue/errors",
+            //             new ErrorMessage("You can only message friends."));
+            //     return;
+            // }
 
             String contentToStore;
             String iv = null;
@@ -82,12 +91,16 @@ public class WebSocketMessageController {
                 }
             }
 
+            // Use custom TTL from request
+            int ttlMinutes = request.getTtlMinutes() != null ? request.getTtlMinutes() : 5;
+
             Message message = messageService.sendMessage(
                     sender.getId(),
                     receiver.getId(),
                     contentToStore,
                     iv,
-                    isEncrypted);
+                    isEncrypted,
+                    ttlMinutes);
 
             // Build response
             MessageResponse response = new MessageResponse();
@@ -104,7 +117,6 @@ public class WebSocketMessageController {
                 response.setSenderIdentityKey(request.getSenderIdentityKey());
                 response.setSenderEphemeralKey(request.getSenderEphemeralKey());
                 response.setUsedOneTimePreKeyId(request.getUsedOneTimePreKeyId());
-                // PRIVACY: Don't send server timestamp for encrypted messages
                 response.setTimestamp(null);
             } else {
                 response.setContent(message.getContent());
@@ -135,12 +147,7 @@ public class WebSocketMessageController {
             this.timestamp = System.currentTimeMillis();
         }
 
-        public String getError() {
-            return error;
-        }
-
-        public long getTimestamp() {
-            return timestamp;
-        }
+        public String getError() { return error; }
+        public long getTimestamp() { return timestamp; }
     }
 }

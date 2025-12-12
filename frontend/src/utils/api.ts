@@ -220,3 +220,48 @@ export const userAPI = {
 };
 
 export default api;
+
+// Friends API calls
+export const friendsAPI = {
+  // Send friend request
+  sendRequest: async (username: string): Promise<{ message: string }> => {
+    const response = await api.post(`/api/friends/request/${username}`);
+    return response.data;
+  },
+
+  // Accept friend request
+  acceptRequest: async (friendshipId: number): Promise<{ message: string }> => {
+    const response = await api.post(`/api/friends/accept/${friendshipId}`);
+    return response.data;
+  },
+
+  // Reject friend request
+  rejectRequest: async (friendshipId: number): Promise<{ message: string }> => {
+    const response = await api.post(`/api/friends/reject/${friendshipId}`);
+    return response.data;
+  },
+
+  // Remove friend
+  removeFriend: async (friendshipId: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/api/friends/${friendshipId}`);
+    return response.data;
+  },
+
+  // Get all friends
+  getFriends: async (): Promise<{ friends: Array<{ id: number; username: string }> }> => {
+    const response = await api.get('/api/friends');
+    return response.data;
+  },
+
+  // Get pending requests
+  getPendingRequests: async (): Promise<{ requests: Array<{ friendshipId: number; userId: number; username: string; createdAt: string }> }> => {
+    const response = await api.get('/api/friends/requests');
+    return response.data;
+  },
+
+  // Check if friends with someone
+  checkFriendship: async (username: string): Promise<{ areFriends: boolean }> => {
+    const response = await api.get(`/api/friends/check/${username}`);
+    return response.data;
+  },
+};

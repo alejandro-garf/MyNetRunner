@@ -62,7 +62,6 @@ export class ChatWebSocket {
           this.stompClient.subscribe('/user/queue/messages', async (message: IMessage) => {
             try {
               const receivedMessage = JSON.parse(message.body);
-              console.log('Received message:', receivedMessage);
 
               // Check if message is encrypted
               if (receivedMessage.encryptedContent && receivedMessage.iv) {
@@ -72,7 +71,6 @@ export class ChatWebSocket {
 
                   // If no session exists and we have key exchange data, create responder session
                   if (!sharedSecret && receivedMessage.senderIdentityKey && receivedMessage.senderEphemeralKey) {
-                    console.log('No session found, creating responder session...');
                     const session = await sessionManager.createResponderSession(
                       senderId,
                       receivedMessage.senderUsername,
@@ -92,11 +90,9 @@ export class ChatWebSocket {
                       sharedSecret
                     );
 
-                    console.log('Message decrypted successfully');
                     receivedMessage.content = decryptedContent;
                     receivedMessage.isEncrypted = true;
                   } else {
-                    console.warn('No session and no key exchange data, cannot decrypt');
                     receivedMessage.content = '[Unable to decrypt - no session]';
                   }
                 } catch (decryptError) {
@@ -120,7 +116,6 @@ export class ChatWebSocket {
           this.stompClient.subscribe('/topic/presence', (message: IMessage) => {
             try {
               const presenceUpdate = JSON.parse(message.body);
-              console.log('Presence update:', presenceUpdate);
 
               if (this.presenceCallback) {
                 this.presenceCallback(presenceUpdate);
@@ -170,7 +165,6 @@ export class ChatWebSocket {
       };
 
       this.stompClient.onDisconnect = () => {
-        console.log('STOMP WebSocket disconnected');
         this.connected = false;
       };
 
@@ -184,11 +178,9 @@ export class ChatWebSocket {
   }
 
   private async handleAuthError(): Promise<void> {
-    console.log('Attempting to refresh token...');
     const newToken = await authAPI.refreshToken();
 
     if (newToken) {
-      console.log('Token refreshed, reconnecting...');
       this.disconnect();
       if (this.messageCallback) {
         this.connect(
@@ -208,7 +200,8 @@ export class ChatWebSocket {
     senderUsername: string,
     recipientUsername: string,
     recipientId: number,
-    content: string
+    content: string,
+    ttlMinutes: number = 5
   ): Promise<void> {
     if (!this.stompClient || !this.connected) {
       console.warn('WebSocket is not connected, cannot send message');
@@ -226,19 +219,16 @@ export class ChatWebSocket {
         // Create new initiator session
         const initiatorSession = await sessionManager.createInitiatorSession(recipientId);
         session = initiatorSession;
-        
+
         // Include key exchange data for first message
         const identityKeyPair = await keyStorage.getIdentityKeyPair();
         senderIdentityKey = identityKeyPair?.publicKey || null;
         senderEphemeralKey = initiatorSession.ephemeralPublicKey;
         usedOneTimePreKeyId = initiatorSession.usedOneTimePreKeyId;
-        
-        console.log('Including key exchange data in first message');
       }
 
       // Encrypt the message
       const encrypted = await encryptMessage(content, session.sharedSecret);
-      console.log('Message encrypted');
 
       const messageRequest: any = {
         senderUsername: senderUsername,
@@ -247,6 +237,7 @@ export class ChatWebSocket {
         encryptedContent: encrypted.ciphertext,
         iv: encrypted.iv,
         isEncrypted: true,
+        ttlMinutes: ttlMinutes,
       };
 
       // Include key exchange data if this is a new session
@@ -260,18 +251,16 @@ export class ChatWebSocket {
         destination: '/app/send',
         body: JSON.stringify(messageRequest),
       });
-
-      console.log('Encrypted message sent');
     } catch (error) {
       console.error('Failed to send encrypted message:', error);
 
       // Fallback: send unencrypted if encryption fails
-      console.warn('Falling back to unencrypted message');
       const messageRequest = {
         senderUsername: senderUsername,
         recipientUsername: recipientUsername,
         content: content,
         isEncrypted: false,
+        ttlMinutes: ttlMinutes,
       };
 
       this.stompClient.publish({

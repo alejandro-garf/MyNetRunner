@@ -19,6 +19,9 @@ public class MessageRequest {
     private String senderEphemeralKey;
     private Integer usedOneTimePreKeyId;
 
+    // Custom TTL in minutes (default 5)
+    private Integer ttlMinutes = 5;
+
     public MessageRequest() {}
 
     // Getters and Setters
@@ -48,6 +51,18 @@ public class MessageRequest {
 
     public Integer getUsedOneTimePreKeyId() { return usedOneTimePreKeyId; }
     public void setUsedOneTimePreKeyId(Integer usedOneTimePreKeyId) { this.usedOneTimePreKeyId = usedOneTimePreKeyId; }
+
+    public Integer getTtlMinutes() { return ttlMinutes; }
+    public void setTtlMinutes(Integer ttlMinutes) { 
+        // Clamp between 1 and 1440 (1 day max)
+        if (ttlMinutes == null || ttlMinutes < 1) {
+            this.ttlMinutes = 5;
+        } else if (ttlMinutes > 1440) {
+            this.ttlMinutes = 1440;
+        } else {
+            this.ttlMinutes = ttlMinutes;
+        }
+    }
 
     public String getEffectiveContent() {
         if (Boolean.TRUE.equals(isEncrypted) && encryptedContent != null) {
