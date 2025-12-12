@@ -1,19 +1,25 @@
 package com.mynetrunner.backend.dto.message;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public class MessageRequest {
-    
-    @NotBlank(message = "Sender username is required")
+
     private String senderUsername;
-    
-    @NotBlank(message = "Recipient username is required")
+
     private String recipientUsername;
-    
-    @NotBlank(message = "Content is required")
-    @Size(min = 1, max = 1000, message = "Message must be between 1 and 1000 characters")
+
+    // Plain text content (used if not encrypted)
+    @Size(max = 10000, message = "Message must be less than 10000 characters")
     private String content;
+
+    // Encrypted content (base64 encoded ciphertext)
+    private String encryptedContent;
+
+    // Initialization vector for AES-GCM (base64 encoded)
+    private String iv;
+
+    // Flag to indicate if message is encrypted
+    private Boolean isEncrypted = false;
 
     // Constructors
     public MessageRequest() {}
@@ -22,6 +28,7 @@ public class MessageRequest {
         this.senderUsername = senderUsername;
         this.recipientUsername = recipientUsername;
         this.content = content;
+        this.isEncrypted = false;
     }
 
     // Getters and Setters
@@ -47,5 +54,37 @@ public class MessageRequest {
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    public String getEncryptedContent() {
+        return encryptedContent;
+    }
+
+    public void setEncryptedContent(String encryptedContent) {
+        this.encryptedContent = encryptedContent;
+    }
+
+    public String getIv() {
+        return iv;
+    }
+
+    public void setIv(String iv) {
+        this.iv = iv;
+    }
+
+    public Boolean getIsEncrypted() {
+        return isEncrypted;
+    }
+
+    public void setIsEncrypted(Boolean isEncrypted) {
+        this.isEncrypted = isEncrypted;
+    }
+
+    // Helper to get the actual content to store
+    public String getEffectiveContent() {
+        if (Boolean.TRUE.equals(isEncrypted) && encryptedContent != null) {
+            return encryptedContent;
+        }
+        return content;
     }
 }

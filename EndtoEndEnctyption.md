@@ -71,14 +71,14 @@
 ## Phase 2: Frontend Key Generation
 
 ### Install Dependencies
-- [ ] Install libsignal library
+- [x] Install libsignal library
   ```bash
   npm install @priva/libsignal-protocol-typescript
   ```
   (or alternative: `@nicktomlin/libsignal-protocol-javascript`)
 
 ### Key Storage (IndexedDB)
-- [ ] Create `crypto/KeyStorage.ts`
+- [x] Create `crypto/KeyStorage.ts`
   - `storeIdentityKeyPair(keyPair)` — save private identity key locally
   - `getIdentityKeyPair()` — retrieve identity key
   - `storeSignedPreKey(keyId, keyPair)` — save signed prekey locally
@@ -87,36 +87,36 @@
   - `clearAllKeys()` — for logout
 
 ### Key Generation
-- [ ] Create `crypto/KeyGenerator.ts`
+- [x] Create `crypto/KeyGenerator.ts`
   - `generateIdentityKeyPair()` — create long-term identity key
   - `generateSignedPreKey(identityKey, keyId)` — create signed prekey
   - `generateOneTimePreKeys(startId, count)` — batch create one-time prekeys
   - `generateRegistrationBundle()` — create full bundle for server upload
 
 ### API Integration
-- [ ] Create `crypto/KeyAPI.ts`
+- [x] Create `crypto/KeyAPI.ts`
   - `uploadPreKeyBundle(bundle)` — POST to `/api/keys/bundle`
   - `uploadOneTimePreKeys(prekeys)` — POST to `/api/keys/prekeys`
   - `fetchPreKeyBundle(userId)` — GET from `/api/keys/{userId}/bundle`
   - `checkKeyStatus()` — GET from `/api/keys/status`
 
 ### Registration Flow
-- [ ] Update registration/login flow
+- [x] Update registration/login flow
   - After successful login, check if keys exist
   - If no keys, generate and upload bundle
   - Store private keys in IndexedDB
 
 ### Testing
-- [ ] Test key generation
-- [ ] Test IndexedDB storage
-- [ ] Test bundle upload to server
+- [x] Test key generation
+- [x] Test IndexedDB storage
+- [x] Test bundle upload to server
 
 ---
 
 ## Phase 3: Key Exchange (X3DH)
 
 ### Session Management
-- [ ] Create `crypto/SessionManager.ts`
+- [x] Create `crypto/SessionManager.ts`
   - `hasSession(userId)` — check if session exists
   - `createSession(userId, preKeyBundle)` — X3DH handshake
   - `getSession(userId)` — retrieve existing session
@@ -124,13 +124,13 @@
   - `deleteSession(userId)` — remove session
 
 ### X3DH Implementation
-- [ ] Create `crypto/X3DH.ts`
+- [x] Create `crypto/X3DH.ts`
   - `performKeyExchange(theirBundle, ourIdentity)` — derive shared secret
   - Uses: our identity key + their identity key + their signed prekey + their one-time prekey
   - Returns: shared secret (32 bytes)
 
 ### Session Storage
-- [ ] Store session data in IndexedDB
+- x ] Store session data in IndexedDB
   - `userId` — who the session is with
   - `sharedSecret` — derived from X3DH (used for AES encryption)
   - `createdAt` — when session was established

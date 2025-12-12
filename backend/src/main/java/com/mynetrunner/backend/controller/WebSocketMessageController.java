@@ -50,30 +50,16 @@ public class WebSocketMessageController {
             System.out.println("=== RECEIVED MESSAGE REQUEST ===");
             System.out.println("From: " + request.getSenderUsername());
             System.out.println("To: " + request.getRecipientUsername());
+            System.out.println("Encrypted: " + request.getIsEncrypted());
 
             // Check rate limit for sender
             if (!rateLimitService.isAllowed(request.getSenderUsername(), "message", MESSAGE_MAX_ATTEMPTS, MESSAGE_WINDOW_SECONDS)) {
                 System.err.println("Rate limit exceeded for user: " + request.getSenderUsername());
-                
+
                 messagingTemplate.convertAndSendToUser(
                     request.getSenderUsername(),
                     "/queue/errors",
                     new ErrorMessage("Rate limit exceeded. Please slow down.")
-                );
-                return;
-            }
-
-            // Sanitize message content to prevent XSS
-            String sanitizedContent = sanitizationUtil.sanitize(request.getContent());
-            
-            // Check for dangerous content
-            if (sanitizationUtil.containsDangerousContent(request.getContent())) {
-                System.err.println("Dangerous content detected from user: " + request.getSenderUsername());
-                
-                messagingTemplate.convertAndSendToUser(
-                    request.getSenderUsername(),
-                    "/queue/errors",
-                    new ErrorMessage("Message contains invalid content.")
                 );
                 return;
             }
@@ -86,27 +72,63 @@ public class WebSocketMessageController {
             User receiver = userRepository.findByUsername(request.getRecipientUsername())
                     .orElseThrow(() -> new UserNotFoundException("Recipient not found: " + request.getRecipientUsername()));
 
-            // Check if receiver is connected
-            String receiverSessionId = sessionManager.getSessionId(receiver.getUsername());
-            System.out.println("Receiver session ID: " + receiverSessionId);
+            // Determine content to store
+            String contentToStore;
+            String iv = null;
+            boolean isEncrypted = Boolean.TRUE.equals(request.getIsEncrypted());
 
-            // Create and save message with SANITIZED content
+            if (isEncrypted && request.getEncryptedContent() != null) {
+                // Store encrypted content as-is (server never decrypts)
+                contentToStore = request.getEncryptedContent();
+                iv = request.getIv();
+                System.out.println("Storing encrypted message (server cannot read)");
+            } else {
+                // Sanitize plaintext content
+                contentToStore = sanitizationUtil.sanitize(request.getContent());
+                
+                if (sanitizationUtil.containsDangerousContent(request.getContent())) {
+                    System.err.println("Dangerous content detected from user: " + request.getSenderUsername());
+                    messagingTemplate.convertAndSendToUser(
+                        request.getSenderUsername(),
+                        "/queue/errors",
+                        new ErrorMessage("Message contains invalid content.")
+                    );
+                    return;
+                }
+            }
+
+            // Create and save message
             Message message = messageService.sendMessage(
                     sender.getId(),
                     receiver.getId(),
-                    sanitizedContent);
+                    contentToStore,
+                    iv,
+                    isEncrypted);
 
-            // Create response with all details
-            MessageResponse response = new MessageResponse(
-                    message.getId(),
-                    sender.getId(),
-                    sender.getUsername(),
-                    receiver.getId(),
-                    message.getContent(),
-                    message.getTimestamp(),
-                    message.getDelivered());
+            // Create response
+            MessageResponse response;
+            if (isEncrypted) {
+                response = new MessageResponse(
+                        message.getId(),
+                        sender.getId(),
+                        sender.getUsername(),
+                        receiver.getId(),
+                        message.getContent(),  // encrypted content
+                        message.getIv(),
+                        message.getTimestamp(),
+                        message.getDelivered());
+            } else {
+                response = new MessageResponse(
+                        message.getId(),
+                        sender.getId(),
+                        sender.getUsername(),
+                        receiver.getId(),
+                        message.getContent(),
+                        message.getTimestamp(),
+                        message.getDelivered());
+            }
 
-            System.out.println("=== ATTEMPTING TO SEND MESSAGE ===");
+            System.out.println("=== SENDING MESSAGE TO RECIPIENT ===");
 
             messagingTemplate.convertAndSendToUser(
                     receiver.getUsername(),

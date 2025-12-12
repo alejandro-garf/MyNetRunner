@@ -19,33 +19,41 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Message {
-    
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
+
     @Column(nullable = false)
     private Long senderId;
-    
+
     @Column(nullable = false)
     private Long receiverId;
-    
+
+    // Stores either plaintext or encrypted content (base64)
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
-    
+
+    // IV for AES-GCM decryption (base64), null if not encrypted
+    @Column(columnDefinition = "TEXT")
+    private String iv;
+
+    // Flag indicating if content is encrypted
+    @Column(nullable = false)
+    private Boolean isEncrypted = false;
+
     @Column(nullable = false)
     private LocalDateTime timestamp;
-    
+
     @Column(nullable = false)
     private Boolean delivered = false;
-    
+
     @Column(nullable = false)
     private LocalDateTime expiresAt;
-    
+
     @PrePersist
     protected void onCreate() {
         timestamp = LocalDateTime.now();
-        // Messages expire after 30 days if undelivered
         expiresAt = LocalDateTime.now().plusDays(30);
     }
 }
