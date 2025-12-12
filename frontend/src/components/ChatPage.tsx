@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, LogOut, MessageSquare, Lock } from 'lucide-react';
 import { initializeChatWebSocket, disconnectChatWebSocket, getChatWebSocket } from '../utils/websocket';
 import { getUsername, getToken, getUserId, authAPI, userAPI } from '../utils/api';
+import { startPreKeyReplenishment } from '../crypto/KeyReplenishment';
 import type { PageType, Message } from '../types';
 
 interface ChatPageProps {
@@ -68,6 +69,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     return () => {
       disconnectChatWebSocket();
       setIsConnected(false);
+    };
+  }, [currentUser]);
+
+  // Start prekey replenishment when chat loads
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const stopReplenishment = startPreKeyReplenishment(60000); // Check every minute
+
+    return () => {
+      stopReplenishment();
     };
   }, [currentUser]);
 
@@ -156,8 +168,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const handleLogout = () => {
-    authAPI.logout();
+  const handleLogout = async () => {
+    await authAPI.logout();
     disconnectChatWebSocket();
     onNavigate('home');
   };
@@ -326,5 +338,3 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     </div>
   );
 };
-
-export default ChatPage;

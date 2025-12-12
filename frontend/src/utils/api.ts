@@ -1,5 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { AuthCredentials, RegisterCredentials, AuthResponse } from '../types';
+import { keyStorage } from '../crypto/KeyStorage';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -156,10 +157,18 @@ export const authAPI = {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Always clear local storage
+      // Clear all local storage
       removeTokens();
       localStorage.removeItem('username');
       localStorage.removeItem('userId');
+      
+      // Clear encryption keys
+      try {
+        await keyStorage.clearAll();
+        console.log('Encryption keys cleared');
+      } catch (e) {
+        console.error('Failed to clear encryption keys:', e);
+      }
     }
   },
 };

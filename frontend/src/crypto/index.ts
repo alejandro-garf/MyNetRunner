@@ -4,3 +4,4 @@ export * from './KeyAPI';
 export * from './X3DH';
 export * from './SessionManager';
 export * from './MessageCrypto';
+export * from './KeyReplenishment';
