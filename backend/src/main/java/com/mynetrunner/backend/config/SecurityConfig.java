@@ -40,6 +40,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/logout").authenticated()
                 .requestMatchers("/api/users/**").authenticated()
                 .requestMatchers("/api/messages/**").authenticated()
+                .requestMatchers("/api/keys/**").authenticated()
                 // Default - require authentication
                 .anyRequest().authenticated()
             )
@@ -58,6 +59,7 @@ public class SecurityConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
+
         return source;
     }
 }
