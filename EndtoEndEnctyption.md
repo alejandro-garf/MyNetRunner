@@ -186,24 +186,14 @@
 ## Phase 5: Integration & UI
 
 ### Chat Page Updates
-- [ ] On conversation start
+- [x] On conversation start
   - Check if session exists with recipient
   - If not, fetch their prekey bundle
   - Perform X3DH, create session
 
-- [ ] Show encryption status indicator
+- [x] Show encryption status indicator
   - Lock icon for encrypted messages
   - Warning if encryption not available
-
-### Error Handling
-- [ ] Handle missing prekey bundles
-- [ ] Handle decryption failures
-- [ ] Handle key regeneration prompts
-
-### Key Management UI (Optional)
-- [ ] Show key fingerprint for verification
-- [ ] Option to regenerate keys
-- [ ] Warning when one-time prekeys are low
 
 ---
 
@@ -230,64 +220,3 @@
 - [ ] Test multiple devices (out of scope for now)
 
 ---
-
-## File Structure
-
-```
-backend/
-├── model/
-│   ├── PreKeyBundle.java          # New
-│   └── OneTimePreKey.java         # New
-├── repository/
-│   ├── PreKeyBundleRepository.java    # New
-│   └── OneTimePreKeyRepository.java   # New
-├── service/
-│   └── KeyService.java            # New
-├── controller/
-│   └── KeyController.java         # New
-└── dto/
-    ├── PreKeyBundleDTO.java       # New
-    └── OneTimePreKeyDTO.java      # New
-
-frontend/
-├── crypto/
-│   ├── KeyStorage.ts              # New - IndexedDB storage
-│   ├── KeyGenerator.ts            # New - Key generation
-│   ├── KeyAPI.ts                  # New - Server communication
-│   ├── SessionManager.ts          # New - Session handling
-│   ├── X3DH.ts                    # New - Key exchange
-│   └── MessageCrypto.ts           # New - AES encryption
-├── utils/
-│   ├── websocket.ts               # Update - encrypt/decrypt
-│   └── api.ts                     # Update - key endpoints
-└── components/
-    └── ChatPage.tsx               # Update - session init
-```
-
----
-
-## Estimated Time
-
-| Phase | Hours |
-|-------|-------|
-| Phase 1: Backend Key Storage | 2-3 |
-| Phase 2: Frontend Key Generation | 2-3 |
-| Phase 3: Key Exchange (X3DH) | 2-3 |
-| Phase 4: Message Encryption | 2-3 |
-| Phase 5: Integration & UI | 1-2 |
-| Phase 6: Testing | 1-2 |
-| **Total** | **10-16** |
-
----
-
-## Notes
-
-- Private keys NEVER leave the client device
-- Server only stores public keys
-- Server only sees encrypted message blobs
-- Forward secrecy is per-session (not per-message like full Signal)
-- One device per user (multi-device is out of scope)
-
----
-
-*Last Updated: December 11, 2025*

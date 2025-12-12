@@ -25,13 +25,23 @@ public class MessageService {
     private UserRepository userRepository;
 
     /**
-     * Send a message - stored only until delivered (max 5 minutes)
+     * Send a message with default TTL (5 minutes)
      */
     public Message sendMessage(Long senderId, Long receiverId, String content) {
-        return sendMessage(senderId, receiverId, content, null, false);
+        return sendMessage(senderId, receiverId, content, null, false, 5);
     }
 
+    /**
+     * Send a message with custom TTL
+     */
     public Message sendMessage(Long senderId, Long receiverId, String content, String iv, boolean isEncrypted) {
+        return sendMessage(senderId, receiverId, content, iv, isEncrypted, 5);
+    }
+
+    /**
+     * Send a message with all options
+     */
+    public Message sendMessage(Long senderId, Long receiverId, String content, String iv, boolean isEncrypted, int ttlMinutes) {
         userRepository.findById(senderId)
                 .orElseThrow(() -> new RuntimeException("Sender not found"));
         userRepository.findById(receiverId)
@@ -44,6 +54,7 @@ public class MessageService {
         message.setIv(iv);
         message.setIsEncrypted(isEncrypted);
         message.setDelivered(false);
+        message.setExpiresAt(LocalDateTime.now().plusMinutes(ttlMinutes));
 
         return messageRepository.save(message);
     }
@@ -65,7 +76,7 @@ public class MessageService {
     }
 
     /**
-     * Mark as delivered AND immediately delete - privacy focused
+     * Mark as delivered AND immediately delete
      */
     @Transactional
     public void markAsDelivered(Long messageId) {
@@ -91,7 +102,6 @@ public class MessageService {
     public void deleteAllMessagesForUser(Long userId) {
         messageRepository.deleteBySenderId(userId);
         messageRepository.deleteByReceiverId(userId);
-        System.out.println("Deleted all messages for user: " + userId);
     }
 
     private MessageResponse convertToResponse(Message message, String senderUsername) {
