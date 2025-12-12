@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, LogOut, MessageSquare, Lock, Shield, Clock, Users, UserPlus, Check, X, ChevronDown } from 'lucide-react';
+import { Send, LogOut, MessageSquare, Lock, Shield, Clock, Users, UserPlus, Check, X, ChevronDown, AlertTriangle, Info } from 'lucide-react';
 import { initializeChatWebSocket, disconnectChatWebSocket, getChatWebSocket } from '../utils/websocket';
 import { getUsername, getToken, getUserId, authAPI, userAPI, friendsAPI } from '../utils/api';
 import { startPreKeyReplenishment } from '../crypto/KeyReplenishment';
@@ -38,9 +38,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLookingUpUser, setIsLookingUpUser] = useState(false);
-  const [showSecurityBanner, setShowSecurityBanner] = useState(true);
+  const [showSecurityModal, setShowSecurityModal] = useState(true);
   const [messageTTL, setMessageTTL] = useState(5);
   const [showTTLDropdown, setShowTTLDropdown] = useState(false);
+  const [showTTLInfo, setShowTTLInfo] = useState(false);
   
   // Friends state
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -65,7 +66,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     setIsLoading(false);
     loadFriends();
     loadPendingRequests();
+
+    // Check if user has seen security modal before
+    const hasSeenModal = localStorage.getItem('mynetrunner_security_acknowledged');
+    setShowSecurityModal(!hasSeenModal);
   }, [onNavigate]);
+
+  const acknowledgeSecurityModal = () => {
+    localStorage.setItem('mynetrunner_security_acknowledged', 'true');
+    setShowSecurityModal(false);
+  };
 
   const loadFriends = async () => {
     try {
@@ -269,28 +279,83 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-indigo-50 flex flex-col">
-      {/* Security Banner */}
-      {showSecurityBanner && (
-        <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-3">
-          <div className="max-w-7xl mx-auto flex items-start justify-between">
-            <div className="flex items-start gap-3">
-              <Shield className="w-5 h-5 mt-0.5 flex-shrink-0" />
-              <div className="text-sm">
-                <p className="font-semibold">Privacy-First Messaging</p>
-                <ul className="mt-1 space-y-0.5 text-green-100 text-xs">
-                  <li>• All messages are end-to-end encrypted</li>
-                  <li>• Messages auto-delete after {messageTTL} minute{messageTTL !== 1 ? 's' : ''} if undelivered</li>
-                  <li>• Server stores nothing after delivery</li>
-                  <li>• We recommend using a trusted VPN for additional privacy</li>
-                </ul>
+      {/* Security Modal - Shows on first visit */}
+      {showSecurityModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-8 text-white text-center">
+              <Shield className="w-16 h-16 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold">Welcome to MyNetRunner</h2>
+              <p className="text-indigo-100 mt-2">Privacy-First Secure Messaging</p>
+            </div>
+            
+            {/* Content */}
+            <div className="px-6 py-6 space-y-4">
+              {/* VPN Warning */}
+              <div className="bg-amber-50 border-2 border-amber-400 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-bold text-amber-800">VPN Strongly Recommended</h3>
+                    <p className="text-sm text-amber-700 mt-1">
+                      While your messages are end-to-end encrypted, your IP address is still visible to our servers. 
+                      For maximum privacy and anonymity, <strong>we strongly recommend using a trusted VPN</strong> when using MyNetRunner.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Auto-Delete Explanation */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <Clock className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-bold text-blue-800">Message Auto-Delete</h3>
+                    <p className="text-sm text-blue-700 mt-1">
+                      Messages are handled as follows:
+                    </p>
+                    <ul className="text-sm text-blue-700 mt-2 space-y-1">
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-600 font-bold">•</span>
+                        <span><strong>Recipient online:</strong> Message is delivered instantly and <strong>deleted from server immediately</strong>.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-amber-600 font-bold">•</span>
+                        <span><strong>Recipient offline:</strong> Message waits on server (encrypted). <strong>Auto-deleted after your chosen time</strong> if not delivered.</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* Encryption Info */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <Lock className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-bold text-green-800">End-to-End Encrypted</h3>
+                    <p className="text-sm text-green-700 mt-1">
+                      All messages are encrypted on your device before being sent. The server <strong>cannot read your messages</strong> — 
+                      only you and your recipient have the keys.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
-            <button 
-              onClick={() => setShowSecurityBanner(false)}
-              className="text-green-200 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+              <button
+                onClick={acknowledgeSecurityModal}
+                className="w-full bg-indigo-600 text-white font-semibold py-3 px-6 rounded-xl hover:bg-indigo-700 transition-colors"
+              >
+                I Understand — Continue to Chat
+              </button>
+              <p className="text-xs text-center text-gray-500 mt-3">
+                You can review this information anytime by clicking the shield icon.
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -313,6 +378,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Security Info Button */}
+            <button
+              onClick={() => setShowSecurityModal(true)}
+              className="bg-amber-100 text-amber-700 p-2 rounded-lg hover:bg-amber-200 transition-colors"
+              title="Security & Privacy Info"
+            >
+              <Shield className="w-5 h-5" />
+            </button>
+
             <button
               onClick={() => setShowFriendsPanel(!showFriendsPanel)}
               className="relative bg-gray-100 text-gray-700 font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm flex items-center gap-2"
@@ -334,6 +408,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
               <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* VPN Reminder Banner */}
+      <div className="bg-amber-50 border-b border-amber-200 px-4 py-2">
+        <div className="max-w-7xl mx-auto flex items-center justify-center gap-2 text-sm">
+          <AlertTriangle className="w-4 h-4 text-amber-600" />
+          <span className="text-amber-800">
+            <strong>Privacy Tip:</strong> Use a trusted VPN for maximum anonymity. Your IP is visible without one.
+          </span>
         </div>
       </div>
 
@@ -442,9 +526,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
               </div>
               
               {/* TTL Selector */}
-              <div className="sm:w-48">
+              <div className="sm:w-56">
                 <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
-                  <Clock className="w-4 h-4" /> Message expires in:
+                  <Clock className="w-4 h-4" /> 
+                  Message expires in:
+                  <button
+                    onClick={() => setShowTTLInfo(!showTTLInfo)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <Info className="w-4 h-4" />
+                  </button>
                 </label>
                 <div className="relative">
                   <button
@@ -473,7 +564,23 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Auto-delete if undelivered</p>
+                
+                {/* TTL Info Tooltip */}
+                {showTTLInfo && (
+                  <div className="absolute mt-2 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg z-20 max-w-xs">
+                    <p className="font-semibold mb-1">How auto-delete works:</p>
+                    <ul className="space-y-1">
+                      <li>• <strong>Online recipient:</strong> Deleted from server instantly after delivery</li>
+                      <li>• <strong>Offline recipient:</strong> Auto-deleted if not delivered within this time</li>
+                    </ul>
+                    <button 
+                      onClick={() => setShowTTLInfo(false)}
+                      className="mt-2 text-gray-400 hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -486,9 +593,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
                   <Send className="w-12 h-12 mx-auto mb-4 text-gray-300" />
                   <p className="text-lg font-medium">No messages yet</p>
                   <p className="text-sm mt-1">Enter a recipient username and start chatting!</p>
-                  <p className="text-xs mt-2 text-green-600 flex items-center justify-center gap-1">
-                    <Lock className="w-3 h-3" /> All messages are end-to-end encrypted
-                  </p>
+                  <div className="mt-4 p-3 bg-green-50 rounded-lg inline-block">
+                    <p className="text-xs text-green-700 flex items-center justify-center gap-1">
+                      <Lock className="w-3 h-3" /> All messages are end-to-end encrypted
+                    </p>
+                    <p className="text-xs text-green-600 mt-1">
+                      Server cannot read your messages
+                    </p>
+                  </div>
                 </div>
               </div>
             ) : (
