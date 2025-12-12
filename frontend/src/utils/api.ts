@@ -27,8 +27,21 @@ export const setToken = (token: string): void => {
   localStorage.setItem('token', token);
 };
 
-export const removeToken = (): void => {
+export const getRefreshToken = (): string | null => {
+  return localStorage.getItem('refreshToken');
+};
+
+export const setRefreshToken = (token: string): void => {
+  localStorage.setItem('refreshToken', token);
+};
+
+export const removeTokens = (): void => {
   localStorage.removeItem('token');
+  localStorage.removeItem('refreshToken');
+};
+
+export const removeToken = (): void => {
+  removeTokens();
 };
 
 export const getUsername = (): string | null => {
@@ -57,13 +70,12 @@ export const authAPI = {
     try {
       const { confirmPassword, ...registerData } = credentials;
       const response = await api.post('/api/auth/register', registerData);
-      
+
       console.log('Register response:', response.data);
-      
-      // Backend returns: { message, username, userId }
+
       const data = response.data;
       return {
-        token: '', // No token returned on register
+        token: '',
         username: data.username,
         userId: data.userId || 0,
         message: data.message,
@@ -71,7 +83,6 @@ export const authAPI = {
     } catch (error) {
       if (error instanceof AxiosError) {
         console.error('Register error:', error.response?.data);
-        // Backend error format: { error: "message" }
         throw new Error(error.response?.data?.error || 'Registration failed');
       }
       throw new Error('An unexpected error occurred');
@@ -82,16 +93,20 @@ export const authAPI = {
   login: async (credentials: AuthCredentials): Promise<AuthResponse> => {
     try {
       const response = await api.post('/api/auth/login', credentials);
-      
+
       console.log('Login response:', response.data);
-      
-      // Backend returns: { message, token, username, userId }
+
       const data = response.data;
-      
+
       if (!data.userId) {
         console.error('Backend did not return userId! Full response:', data);
       }
-      
+
+      // Store refresh token if provided
+      if (data.refreshToken) {
+        setRefreshToken(data.refreshToken);
+      }
+
       return {
         token: data.token,
         username: data.username,
@@ -101,31 +116,77 @@ export const authAPI = {
     } catch (error) {
       if (error instanceof AxiosError) {
         console.error('Login error:', error.response?.data);
-        // Backend error format: { error: "message" }
         throw new Error(error.response?.data?.error || 'Login failed');
       }
       throw new Error('An unexpected error occurred');
     }
   },
 
+  // Refresh access token
+  refreshToken: async (): Promise<string | null> => {
+    try {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) {
+        return null;
+      }
+
+      const response = await api.post('/api/auth/refresh', { refreshToken });
+      const newToken = response.data.token;
+
+      if (newToken) {
+        setToken(newToken);
+        return newToken;
+      }
+      return null;
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      return null;
+    }
+  },
+
   // Logout user
-  logout: (): void => {
-    removeToken();
-    localStorage.removeItem('username');
-    localStorage.removeItem('userId');
+  logout: async (): Promise<void> => {
+    try {
+      const token = getToken();
+      const refreshToken = getRefreshToken();
+
+      if (token) {
+        await api.post('/api/auth/logout', { refreshToken });
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Always clear local storage
+      removeTokens();
+      localStorage.removeItem('username');
+      localStorage.removeItem('userId');
+    }
   },
 };
 
 // User API calls
 export const userAPI = {
-  // Get all users - NOTE: This endpoint doesn't exist in your backend yet!
-  getAllUsers: async (): Promise<Array<{id: number; username: string}>> => {
+  // Get user online status
+  getUserStatus: async (username: string): Promise<{ username: string; online: boolean }> => {
     try {
-      console.warn('GET /api/users endpoint not implemented in backend yet');
-      return [];
+      const response = await api.get(`/api/users/${username}/status`);
+      return response.data;
     } catch (error) {
       if (error instanceof AxiosError) {
-        throw new Error(error.response?.data?.error || 'Failed to fetch users');
+        throw new Error(error.response?.data?.error || 'Failed to fetch user status');
+      }
+      throw new Error('An unexpected error occurred');
+    }
+  },
+
+  // Get all online users
+  getOnlineUsers: async (): Promise<{ count: number; users: string[] }> => {
+    try {
+      const response = await api.get('/api/users/online');
+      return response.data;
+    } catch (error) {
+      if (error instanceof AxiosError) {
+        throw new Error(error.response?.data?.error || 'Failed to fetch online users');
       }
       throw new Error('An unexpected error occurred');
     }
