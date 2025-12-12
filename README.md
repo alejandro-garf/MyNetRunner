@@ -75,9 +75,9 @@
 - [ ] Secure WebSocket connections with JWT validation
 
 #### Rate Limiting
-- [ ] Implement rate limiting for auth endpoints (prevent brute force)
-- [ ] Add rate limiting for message sending
-- [ ] Store rate limit counters in Redis
+- [x] Implement rate limiting for auth endpoints (prevent brute force)
+- [x] Add rate limiting for message sending
+- [x] Store rate limit counters in Redis
 
 #### Input Sanitization
 - [ ] Sanitize message content (prevent XSS)
