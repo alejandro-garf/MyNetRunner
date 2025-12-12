@@ -1,5 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { AuthCredentials, RegisterCredentials, AuthResponse } from '../types';
+import { keyStorage } from '../crypto/KeyStorage';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -156,10 +157,18 @@ export const authAPI = {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Always clear local storage
+      // Clear all local storage
       removeTokens();
       localStorage.removeItem('username');
       localStorage.removeItem('userId');
+      
+      // Clear encryption keys
+      try {
+        await keyStorage.clearAll();
+        console.log('Encryption keys cleared');
+      } catch (e) {
+        console.error('Failed to clear encryption keys:', e);
+      }
     }
   },
 };
@@ -189,6 +198,20 @@ export const userAPI = {
         throw new Error(error.response?.data?.error || 'Failed to fetch online users');
       }
       throw new Error('An unexpected error occurred');
+    }
+  },
+
+  // Get user by username (for encryption - need userId)
+  getByUsername: async (username: string): Promise<{ id: number; username: string } | null> => {
+    try {
+      const response = await api.get(`/api/users/by-username/${username}`);
+      return response.data;
+    } catch (error) {
+      if (error instanceof AxiosError && error.response?.status === 404) {
+        return null;
+      }
+      console.error('Failed to get user by username:', error);
+      return null;
     }
   },
 };

@@ -16,65 +16,74 @@ import com.mynetrunner.backend.repository.UserRepository;
 
 @Service
 public class MessageService {
-    
+
     @Autowired
     private MessageRepository messageRepository;
-    
+
     @Autowired
     private UserRepository userRepository;
-    
+
     /**
-     * Send a message (temporarily store until delivered)
+     * Send a message (temporarily store until delivered) - unencrypted
      */
     public Message sendMessage(Long senderId, Long receiverId, String content) {
+        return sendMessage(senderId, receiverId, content, null, false);
+    }
+
+    /**
+     * Send a message (temporarily store until delivered) - with encryption support
+     */
+    public Message sendMessage(Long senderId, Long receiverId, String content, String iv, boolean isEncrypted) {
         // Verify sender exists
         User sender = userRepository.findById(senderId)
-            .orElseThrow(() -> new RuntimeException("Sender not found"));
+                .orElseThrow(() -> new RuntimeException("Sender not found"));
 
         // Verify receiver exists
         User receiver = userRepository.findById(receiverId)
-            .orElseThrow(() -> new RuntimeException("Receiver not found"));
+                .orElseThrow(() -> new RuntimeException("Receiver not found"));
 
         // Create and save message
         Message message = new Message();
         message.setSenderId(senderId);
         message.setReceiverId(receiverId);
         message.setContent(content);
+        message.setIv(iv);
+        message.setIsEncrypted(isEncrypted);
         message.setDelivered(false);
 
         Message savedMessage = messageRepository.save(message);
 
         return savedMessage;
     }
-    
+
     /**
      * Get all pending (undelivered) messages for a user
      */
     public List<MessageResponse> getPendingMessages(Long userId) {
         List<Message> messages = messageRepository.findByReceiverIdAndDeliveredFalse(userId);
-        
+
         return messages.stream()
-            .map(message -> {
-                User sender = userRepository.findById(message.getSenderId())
-                    .orElse(null);
-                String senderUsername = sender != null ? sender.getUsername() : "Unknown";
-                return convertToResponse(message, senderUsername);
-            })
-            .collect(Collectors.toList());
+                .map(message -> {
+                    User sender = userRepository.findById(message.getSenderId())
+                            .orElse(null);
+                    String senderUsername = sender != null ? sender.getUsername() : "Unknown";
+                    return convertToResponse(message, senderUsername);
+                })
+                .collect(Collectors.toList());
     }
-    
+
     /**
      * Mark message as delivered and DELETE from server (privacy-focused)
      */
     @Transactional
     public void markAsDelivered(Long messageId) {
         Message message = messageRepository.findById(messageId)
-            .orElseThrow(() -> new RuntimeException("Message not found"));
-        
+                .orElseThrow(() -> new RuntimeException("Message not found"));
+
         // Immediately delete from database after delivery
         messageRepository.deleteById(messageId);
     }
-    
+
     /**
      * Delete expired messages (called by scheduled job)
      */
@@ -82,19 +91,30 @@ public class MessageService {
     public void deleteExpiredMessages() {
         messageRepository.deleteExpiredMessages(LocalDateTime.now());
     }
-    
+
     /**
      * Convert Message entity to MessageResponse DTO
      */
     private MessageResponse convertToResponse(Message message, String senderUsername) {
-        return new MessageResponse(
-            message.getId(),
-            message.getSenderId(),
-            senderUsername,
-            message.getReceiverId(),
-            message.getContent(),
-            message.getTimestamp(),
-            message.getDelivered()
-        );
+        if (Boolean.TRUE.equals(message.getIsEncrypted())) {
+            return new MessageResponse(
+                    message.getId(),
+                    message.getSenderId(),
+                    senderUsername,
+                    message.getReceiverId(),
+                    message.getContent(), // encrypted content
+                    message.getIv(),
+                    message.getTimestamp(),
+                    message.getDelivered());
+        } else {
+            return new MessageResponse(
+                    message.getId(),
+                    message.getSenderId(),
+                    senderUsername,
+                    message.getReceiverId(),
+                    message.getContent(),
+                    message.getTimestamp(),
+                    message.getDelivered());
+        }
     }
 }

@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { authAPI, setToken, setUsername, setUserId } from '../utils/api';
+import { 
+  checkKeyStatus, 
+  uploadPreKeyBundle, 
+  uploadOneTimePreKeys 
+} from '../crypto/KeyAPI';
+import { generateRegistrationBundle, hasGeneratedKeys } from '../crypto/KeyGenerator';
+import { keyStorage } from '../crypto/KeyStorage';
 import type { PageType } from '../types';
 
 interface SignInPageProps {
@@ -18,6 +25,7 @@ const SignInPage: React.FC<SignInPageProps> = ({ onNavigate }) => {
   });
   const [error, setError] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [status, setStatus] = useState<string>('');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -26,6 +34,51 @@ const SignInPage: React.FC<SignInPageProps> = ({ onNavigate }) => {
       [name]: value
     }));
     if (error) setError('');
+  };
+
+  const setupEncryptionKeys = async () => {
+    try {
+      // Check if server has keys for this user
+      setStatus('Checking encryption keys...');
+      const serverStatus = await checkKeyStatus();
+      
+      if (serverStatus.hasKeys) {
+        // Check if we have local keys
+        const hasLocalKeys = await hasGeneratedKeys();
+        
+        if (hasLocalKeys) {
+          console.log('Encryption keys already set up');
+          setStatus('');
+          return;
+        } else {
+          // Server has keys but we don't locally - this is a new device
+          // For now, regenerate keys (in production, you'd handle this differently)
+          console.log('Server has keys but local keys missing - regenerating');
+        }
+      }
+
+      // Generate new keys
+      setStatus('Generating encryption keys...');
+      const bundle = await generateRegistrationBundle();
+
+      // Upload to server
+      setStatus('Uploading encryption keys...');
+      await uploadPreKeyBundle({
+        identityKey: bundle.identityKey,
+        signedPreKey: bundle.signedPreKey,
+        signedPreKeyId: bundle.signedPreKeyId,
+        signedPreKeySignature: bundle.signedPreKeySignature,
+      });
+
+      await uploadOneTimePreKeys(bundle.oneTimePreKeys);
+
+      console.log('Encryption keys set up successfully');
+      setStatus('');
+    } catch (err) {
+      console.error('Failed to set up encryption keys:', err);
+      // Don't block login if key setup fails - just warn
+      setStatus('');
+    }
   };
 
   const handleSubmit = async () => {
@@ -52,11 +105,16 @@ const SignInPage: React.FC<SignInPageProps> = ({ onNavigate }) => {
       setUserId(response.userId);
       
       console.log('Login successful:', response);
+
+      // Set up encryption keys after login
+      await setupEncryptionKeys();
+
       onNavigate('chat');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setIsLoading(false);
+      setStatus('');
     }
   };
 
@@ -84,6 +142,17 @@ const SignInPage: React.FC<SignInPageProps> = ({ onNavigate }) => {
         {error && (
           <div className="mb-5 sm:mb-6 p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm">
             {error}
+          </div>
+        )}
+
+        {/* Status message */}
+        {status && (
+          <div className="mb-5 sm:mb-6 p-3 bg-blue-50 border border-blue-200 text-blue-600 rounded-lg text-sm flex items-center">
+            <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            {status}
           </div>
         )}
         

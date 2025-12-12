@@ -11,7 +11,7 @@ export interface RegisterCredentials extends AuthCredentials {
 export interface AuthResponse {
   token: string;
   username: string;
-  userId: number;  // Added userId field
+  userId: number;
   message?: string;
 }
 
@@ -29,6 +29,7 @@ export interface Message {
   content: string;
   timestamp: string;
   delivered: boolean;
+  isEncrypted?: boolean;
 }
 
 export interface Contact {
