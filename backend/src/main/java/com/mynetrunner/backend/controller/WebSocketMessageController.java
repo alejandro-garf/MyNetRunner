@@ -16,13 +16,13 @@ import com.mynetrunner.backend.repository.UserRepository;
 import com.mynetrunner.backend.service.MessageService;
 import com.mynetrunner.backend.service.RateLimitService;
 import com.mynetrunner.backend.service.WebSocketSessionManager;
+import com.mynetrunner.backend.util.SanitizationUtil;
 
 import jakarta.validation.Valid;
 
 @Controller
 public class WebSocketMessageController {
 
-    // Rate limit: 30 messages per 60 seconds per user
     private static final int MESSAGE_MAX_ATTEMPTS = 30;
     private static final int MESSAGE_WINDOW_SECONDS = 60;
 
@@ -41,6 +41,9 @@ public class WebSocketMessageController {
     @Autowired
     private RateLimitService rateLimitService;
 
+    @Autowired
+    private SanitizationUtil sanitizationUtil;
+
     @MessageMapping("/send")
     public void sendMessage(@Valid @Payload MessageRequest request) {
         try {
@@ -52,11 +55,25 @@ public class WebSocketMessageController {
             if (!rateLimitService.isAllowed(request.getSenderUsername(), "message", MESSAGE_MAX_ATTEMPTS, MESSAGE_WINDOW_SECONDS)) {
                 System.err.println("Rate limit exceeded for user: " + request.getSenderUsername());
                 
-                // Send error back to sender
                 messagingTemplate.convertAndSendToUser(
                     request.getSenderUsername(),
                     "/queue/errors",
                     new ErrorMessage("Rate limit exceeded. Please slow down.")
+                );
+                return;
+            }
+
+            // Sanitize message content to prevent XSS
+            String sanitizedContent = sanitizationUtil.sanitize(request.getContent());
+            
+            // Check for dangerous content
+            if (sanitizationUtil.containsDangerousContent(request.getContent())) {
+                System.err.println("Dangerous content detected from user: " + request.getSenderUsername());
+                
+                messagingTemplate.convertAndSendToUser(
+                    request.getSenderUsername(),
+                    "/queue/errors",
+                    new ErrorMessage("Message contains invalid content.")
                 );
                 return;
             }
@@ -73,11 +90,11 @@ public class WebSocketMessageController {
             String receiverSessionId = sessionManager.getSessionId(receiver.getUsername());
             System.out.println("Receiver session ID: " + receiverSessionId);
 
-            // Create and save message temporarily
+            // Create and save message with SANITIZED content
             Message message = messageService.sendMessage(
                     sender.getId(),
                     receiver.getId(),
-                    request.getContent());
+                    sanitizedContent);
 
             // Create response with all details
             MessageResponse response = new MessageResponse(
@@ -91,14 +108,12 @@ public class WebSocketMessageController {
 
             System.out.println("=== ATTEMPTING TO SEND MESSAGE ===");
 
-            // Try sending using username-based routing
             messagingTemplate.convertAndSendToUser(
                     receiver.getUsername(),
                     "/queue/messages",
                     response);
 
             System.out.println("Message sent to user: " + receiver.getUsername());
-            System.out.println("Expected destination: /user/" + receiver.getUsername() + "/queue/messages");
 
             // Mark as delivered and delete from server
             messageService.markAsDelivered(message.getId());
@@ -115,7 +130,6 @@ public class WebSocketMessageController {
         }
     }
 
-    // Simple error message class
     private static class ErrorMessage {
         private final String error;
         private final long timestamp;

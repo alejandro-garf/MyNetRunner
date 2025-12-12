@@ -80,8 +80,8 @@
 - [x] Store rate limit counters in Redis
 
 #### Input Sanitization
-- [ ] Sanitize message content (prevent XSS)
-- [ ] Add additional validation for all user inputs
+- [x] Sanitize message content (prevent XSS)
+- [x] Add additional validation for all user inputs
 
 ---
 
