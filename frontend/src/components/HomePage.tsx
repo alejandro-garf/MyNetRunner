@@ -1,14 +1,143 @@
 import React, { useEffect, useState } from 'react';
-import { Shield, Lock, Zap, Eye, EyeOff, Server, Wifi, Terminal } from 'lucide-react';
+import { Shield, Lock, Zap, EyeOff, X, Terminal, Key, Server, Trash2, Clock, Database, FileQuestion } from 'lucide-react';
 import type { PageType } from '../types';
 
 interface HomePageProps {
   onNavigate: (page: PageType) => void;
 }
 
+interface FeatureInfo {
+  id: string;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  color: 'purple' | 'pink' | 'cyan' | 'green';
+  details: {
+    headline: string;
+    explanation: string;
+    points: Array<{ icon: React.ReactNode; title: string; description: string }>;
+  };
+}
+
+const FEATURES: FeatureInfo[] = [
+  {
+    id: 'encryption',
+    icon: <Lock className="w-6 h-6" />,
+    title: 'E2E Encryption',
+    description: 'AES-256-GCM encryption',
+    color: 'purple',
+    details: {
+      headline: 'Military-Grade End-to-End Encryption',
+      explanation: 'Every message is encrypted on your device before transmission. Only the intended recipient can decrypt it — not even our servers can read your messages.',
+      points: [
+        {
+          icon: <Key className="w-5 h-5" />,
+          title: 'X3DH Key Exchange',
+          description: 'Extended Triple Diffie-Hellman protocol establishes secure sessions without ever exposing private keys.',
+        },
+        {
+          icon: <Lock className="w-5 h-5" />,
+          title: 'AES-256-GCM',
+          description: 'The same encryption standard used by governments and military organizations worldwide.',
+        },
+        {
+          icon: <Shield className="w-5 h-5" />,
+          title: 'Perfect Forward Secrecy',
+          description: 'Each session uses unique keys. Compromising one session doesn\'t affect past or future communications.',
+        },
+      ],
+    },
+  },
+  {
+    id: 'zero-knowledge',
+    icon: <EyeOff className="w-6 h-6" />,
+    title: 'Zero Knowledge',
+    description: "We can't read your messages",
+    color: 'pink',
+    details: {
+      headline: 'True Zero-Knowledge Architecture',
+      explanation: 'Our servers are designed to know as little as possible about you. We can\'t read your messages, see your contacts, or access your encryption keys.',
+      points: [
+        {
+          icon: <Server className="w-5 h-5" />,
+          title: 'Server-Side Blindness',
+          description: 'Messages arrive encrypted and leave encrypted. The server only sees ciphertext — random-looking data.',
+        },
+        {
+          icon: <Key className="w-5 h-5" />,
+          title: 'Client-Side Keys',
+          description: 'All encryption keys are generated and stored on your device, never uploaded to our servers.',
+        },
+        {
+          icon: <FileQuestion className="w-5 h-5" />,
+          title: 'No Subpoena Risk',
+          description: 'Even if legally compelled, we cannot provide message contents we don\'t have access to.',
+        },
+      ],
+    },
+  },
+  {
+    id: 'auto-delete',
+    icon: <Zap className="w-6 h-6" />,
+    title: 'Auto-Delete',
+    description: 'Messages vanish after delivery',
+    color: 'cyan',
+    details: {
+      headline: 'Ephemeral Messaging by Default',
+      explanation: 'Messages are automatically deleted from our servers immediately after delivery. Undelivered messages expire based on your chosen time-to-live (TTL).',
+      points: [
+        {
+          icon: <Trash2 className="w-5 h-5" />,
+          title: 'Instant Deletion',
+          description: 'Once a message is delivered to the recipient, it\'s immediately purged from our servers.',
+        },
+        {
+          icon: <Clock className="w-5 h-5" />,
+          title: 'Configurable TTL',
+          description: 'Choose how long undelivered messages persist: 1 minute to 24 hours. After that, they\'re gone forever.',
+        },
+        {
+          icon: <Database className="w-5 h-5" />,
+          title: 'No Message History',
+          description: 'We don\'t store chat logs or message history. Your conversation exists only on your device.',
+        },
+      ],
+    },
+  },
+   {
+    id: 'no-logs',
+    icon: <Shield className="w-6 h-6" />,
+    title: 'No Logs',
+    description: 'No metadata stored',
+    color: 'green',
+    details: {
+      headline: 'Privacy Beyond Messages',
+      explanation: 'MyNetRunner does not log your IP address or connection metadata. However, your browser, ISP, and network may still track your activity. For complete anonymity, we strongly recommend additional precautions.',
+      points: [
+        {
+          icon: <Server className="w-5 h-5" />,
+          title: 'Server-Side: No IP Logging',
+          description: 'We\'ve disabled all IP and access logging on our servers. Your connection details are never stored by us.',
+        },
+        {
+          icon: <EyeOff className="w-5 h-5" />,
+          title: 'Use a Trusted VPN',
+          description: 'Your ISP and network can still see you\'re connecting to our servers. A VPN hides this from everyone except the VPN provider.',
+        },
+        {
+          icon: <Database className="w-5 h-5" />,
+          title: 'Use a Privacy-Focused Browser',
+          description: 'Browsers like Firefox, Brave, or Tor Browser minimize tracking. Avoid Chrome if privacy is your priority.',
+        },
+      ],
+    },
+},
+];
+
 const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [glitchText, setGlitchText] = useState('MyNetRunner');
   const [particles, setParticles] = useState<Array<{ id: number; x: number; y: number; delay: number }>>([]);
+  const [expandedFeature, setExpandedFeature] = useState<FeatureInfo | null>(null);
 
   useEffect(() => {
     // Create floating particles
@@ -41,6 +170,40 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
     return () => clearInterval(glitchInterval);
   }, []);
+
+  const getColorClasses = (color: 'purple' | 'pink' | 'cyan' | 'green') => {
+    const colorMap = {
+      purple: {
+        gradient: 'from-purple-500/20 to-purple-500/0',
+        border: 'border-purple-500/30',
+        text: 'text-purple-400',
+        bg: 'bg-purple-500/10',
+        glow: 'shadow-purple-500/20',
+      },
+      pink: {
+        gradient: 'from-pink-500/20 to-pink-500/0',
+        border: 'border-pink-500/30',
+        text: 'text-pink-400',
+        bg: 'bg-pink-500/10',
+        glow: 'shadow-pink-500/20',
+      },
+      cyan: {
+        gradient: 'from-cyan-500/20 to-cyan-500/0',
+        border: 'border-cyan-500/0',
+        text: 'text-cyan-400',
+        bg: 'bg-cyan-500/10',
+        glow: 'shadow-cyan-500/20',
+      },
+      green: {
+        gradient: 'from-green-500/20 to-green-500/0',
+        border: 'border-green-500/30',
+        text: 'text-green-400',
+        bg: 'bg-green-500/10',
+        glow: 'shadow-green-500/20',
+      },
+    };
+    return colorMap[color];
+  };
 
   return (
     <div className="min-h-screen bg-[#0a0e14] overflow-hidden relative">
@@ -77,6 +240,102 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       <div className="absolute top-1/4 -left-32 w-96 h-96 bg-purple-600/30 rounded-full blur-[128px] animate-pulse" />
       <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-cyan-600/30 rounded-full blur-[128px] animate-pulse" style={{ animationDelay: '1s' }} />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-pink-600/10 rounded-full blur-[200px]" />
+
+      {/* Feature Modal */}
+      {expandedFeature && (
+        <div 
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setExpandedFeature(null)}
+        >
+          <div 
+            className="bg-[#0f1419] border border-[#1e2a3a] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className={`p-6 border-b border-[#1e2a3a] bg-gradient-to-r ${
+              expandedFeature.color === 'purple' ? 'from-purple-900/50 to-transparent' :
+              expandedFeature.color === 'pink' ? 'from-pink-900/50 to-transparent' :
+              expandedFeature.color === 'cyan' ? 'from-cyan-900/50 to-transparent' :
+              'from-green-900/50 to-transparent'
+            }`}>
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-xl ${getColorClasses(expandedFeature.color).bg} ${getColorClasses(expandedFeature.color).text}`}>
+                    {expandedFeature.icon}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">{expandedFeature.title}</h2>
+                    <p className="text-gray-400 mt-1">{expandedFeature.description}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setExpandedFeature(null)}
+                  className="p-2 text-gray-500 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-6">
+              <div>
+                <h3 className={`text-xl font-semibold ${getColorClasses(expandedFeature.color).text} mb-3`}>
+                  {expandedFeature.details.headline}
+                </h3>
+                <p className="text-gray-300 leading-relaxed">
+                  {expandedFeature.details.explanation}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {expandedFeature.details.points.map((point, index) => (
+                  <div 
+                    key={index}
+                    className={`p-4 rounded-xl bg-gradient-to-r ${getColorClasses(expandedFeature.color).gradient} border ${getColorClasses(expandedFeature.color).border}`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className={`p-2 rounded-lg ${getColorClasses(expandedFeature.color).bg} ${getColorClasses(expandedFeature.color).text} flex-shrink-0`}>
+                        {point.icon}
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-white mb-1">{point.title}</h4>
+                        <p className="text-gray-400 text-sm leading-relaxed">{point.description}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Technical specs or additional info */}
+              <div className="pt-4 border-t border-[#1e2a3a]">
+                <div className="flex items-center gap-2 text-gray-500 text-sm">
+                  <Shield className="w-4 h-4" />
+                  <span>MyNetRunner uses industry-standard cryptographic protocols</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-[#1e2a3a] bg-[#0a0e14]">
+              <button
+                onClick={() => {
+                  setExpandedFeature(null);
+                  onNavigate('signup');
+                }}
+                className={`w-full py-3 rounded-xl font-semibold transition-all ${
+                  expandedFeature.color === 'purple' ? 'bg-purple-600 hover:bg-purple-700' :
+                  expandedFeature.color === 'pink' ? 'bg-pink-600 hover:bg-pink-700' :
+                  expandedFeature.color === 'cyan' ? 'bg-cyan-600 hover:bg-cyan-700' :
+                  'bg-green-600 hover:bg-green-700'
+                } text-white`}
+              >
+                Get Started with Secure Messaging
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="relative z-10 px-6 py-4">
@@ -151,32 +410,24 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               </button>
             </div>
 
-            {/* Features */}
+            {/* Features - Now Clickable */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <FeatureCard
-                icon={<Lock className="w-6 h-6" />}
-                title="E2E Encryption"
-                description="AES-256-GCM encryption"
-                color="purple"
-              />
-              <FeatureCard
-                icon={<EyeOff className="w-6 h-6" />}
-                title="Zero Knowledge"
-                description="We can't read your messages"
-                color="pink"
-              />
-              <FeatureCard
-                icon={<Zap className="w-6 h-6" />}
-                title="Auto-Delete"
-                description="Messages vanish after delivery"
-                color="cyan"
-              />
-              <FeatureCard
-                icon={<Shield className="w-6 h-6" />}
-                title="No Logs"
-                description="No metadata stored"
-                color="green"
-              />
+              {FEATURES.map((feature) => (
+                <button
+                  key={feature.id}
+                  onClick={() => setExpandedFeature(feature)}
+                  className={`p-4 rounded-xl bg-gradient-to-b ${getColorClasses(feature.color).gradient} border ${getColorClasses(feature.color).border} backdrop-blur-sm text-left transition-all hover:scale-105 hover:shadow-lg ${getColorClasses(feature.color).glow} group`}
+                >
+                  <div className={`mb-3 ${getColorClasses(feature.color).text} transition-transform group-hover:scale-110`}>
+                    {feature.icon}
+                  </div>
+                  <h3 className="text-white font-semibold mb-1">{feature.title}</h3>
+                  <p className="text-gray-500 text-sm">{feature.description}</p>
+                  <div className={`mt-3 text-xs ${getColorClasses(feature.color).text} opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1`}>
+                    Learn more →
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -204,32 +455,6 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           100% { transform: translate(50px, 50px); }
         }
       `}</style>
-    </div>
-  );
-};
-
-interface FeatureCardProps {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  color: 'purple' | 'pink' | 'cyan' | 'green';
-}
-
-const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, color }) => {
-  const colorClasses = {
-    purple: 'from-purple-500/20 to-purple-500/0 border-purple-500/30 text-purple-400',
-    pink: 'from-pink-500/20 to-pink-500/0 border-pink-500/30 text-pink-400',
-    cyan: 'from-cyan-500/20 to-cyan-500/0 border-cyan-500/30 text-cyan-400',
-    green: 'from-green-500/20 to-green-500/0 border-green-500/30 text-green-400',
-  };
-
-  return (
-    <div className={`p-4 rounded-xl bg-gradient-to-b ${colorClasses[color]} border backdrop-blur-sm`}>
-      <div className={`mb-3 ${colorClasses[color].split(' ').pop()}`}>
-        {icon}
-      </div>
-      <h3 className="text-white font-semibold mb-1">{title}</h3>
-      <p className="text-gray-500 text-sm">{description}</p>
     </div>
   );
 };
