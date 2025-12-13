@@ -46,6 +46,16 @@ public class Message {
     @Column(nullable = false)
     private Boolean isEncrypted = false;
 
+    // Crypto fields for E2E encryption (public keys only - for offline delivery)
+    @Column(columnDefinition = "TEXT")
+    private String senderIdentityKey;
+
+    @Column(columnDefinition = "TEXT")
+    private String senderEphemeralKey;
+
+    @Column
+    private Long usedOneTimePreKeyId;
+
     @Column(nullable = false)
     private LocalDateTime timestamp;
 
