@@ -2,7 +2,7 @@
 
 import { getPreKeyCount, uploadOneTimePreKeys } from './KeyAPI';
 import { generateOneTimePreKeys } from './KeyGenerator';
-import { keyStorage } from './KeyStorage';
+
 
 const MIN_PREKEYS = 5;
 const REPLENISH_COUNT = 10;

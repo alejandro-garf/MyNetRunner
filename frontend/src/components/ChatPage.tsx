@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Send, LogOut, Search, Settings, Users, UserPlus, Check, X, Plus, Shield, Clock, Lock, AlertTriangle } from 'lucide-react';
 import { initializeChatWebSocket, disconnectChatWebSocket, getChatWebSocket } from '../utils/websocket';
-import { getUsername, getToken, getUserId, authAPI, userAPI, friendsAPI, groupsAPI } from '../utils/api';
+import { getUsername, getToken, getUserId, authAPI, friendsAPI, groupsAPI } from '../utils/api';
 import { startPreKeyReplenishment } from '../crypto/KeyReplenishment';
 import type { PageType, Message, Group, GroupMember } from '../types';
 
