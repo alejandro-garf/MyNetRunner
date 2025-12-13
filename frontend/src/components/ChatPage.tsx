@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, LogOut, MessageSquare, Lock, Shield, Clock, Users, UserPlus, Check, X, ChevronDown, AlertTriangle, Info, Plus, Settings, Trash2 } from 'lucide-react';
+import { Send, LogOut, Search, Settings, Users, UserPlus, Check, X, Plus, Phone, Video, MoreHorizontal, Smile, Paperclip, Mic, Shield, Clock, Lock, AlertTriangle, ChevronDown } from 'lucide-react';
 import { initializeChatWebSocket, disconnectChatWebSocket, getChatWebSocket } from '../utils/websocket';
 import { getUsername, getToken, getUserId, authAPI, userAPI, friendsAPI, groupsAPI } from '../utils/api';
 import { startPreKeyReplenishment } from '../crypto/KeyReplenishment';
@@ -21,10 +21,22 @@ interface FriendRequest {
   createdAt: string;
 }
 
+interface Conversation {
+  id: string;
+  type: 'direct' | 'group';
+  name: string;
+  recipientId?: number;
+  groupId?: number;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  unreadCount: number;
+  avatar?: string;
+}
+
 const TTL_OPTIONS = [
-  { value: 1, label: '1 minute' },
-  { value: 5, label: '5 minutes' },
-  { value: 15, label: '15 minutes' },
+  { value: 1, label: '1 min' },
+  { value: 5, label: '5 min' },
+  { value: 15, label: '15 min' },
   { value: 60, label: '1 hour' },
   { value: 1440, label: '24 hours' },
 ];
@@ -33,38 +45,35 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string } | null>(null);
-  const [recipientUsername, setRecipientUsername] = useState('');
-  const [recipientId, setRecipientId] = useState<number | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLookingUpUser, setIsLookingUpUser] = useState(false);
-  const [showSecurityModal, setShowSecurityModal] = useState(true);
+  const [showSecurityModal, setShowSecurityModal] = useState(false);
   const [messageTTL, setMessageTTL] = useState(5);
   const [showTTLDropdown, setShowTTLDropdown] = useState(false);
-  const [showTTLInfo, setShowTTLInfo] = useState(false);
 
-  // Friends state
+  // Conversations
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Friends & Groups
   const [friends, setFriends] = useState<Friend[]>([]);
   const [pendingRequests, setPendingRequests] = useState<FriendRequest[]>([]);
-  const [showFriendsPanel, setShowFriendsPanel] = useState(false);
-  const [addFriendUsername, setAddFriendUsername] = useState('');
-  const [friendActionMessage, setFriendActionMessage] = useState('');
-
-  // Groups state
   const [groups, setGroups] = useState<Group[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [showGroupSettings, setShowGroupSettings] = useState(false);
-  const [addMemberUsername, setAddMemberUsername] = useState('');
-  const [groupActionMessage, setGroupActionMessage] = useState('');
 
-  // Chat mode: 'direct' or 'group'
-  const [chatMode, setChatMode] = useState<'direct' | 'group'>('direct');
+  // Modals
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [addFriendUsername, setAddFriendUsername] = useState('');
+  const [addMemberUsername, setAddMemberUsername] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Initialize
   useEffect(() => {
     const token = getToken();
     const username = getUsername();
@@ -82,14 +91,116 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     loadGroups();
 
     const hasSeenModal = localStorage.getItem('mynetrunner_security_acknowledged');
-    setShowSecurityModal(!hasSeenModal);
+    if (!hasSeenModal) {
+      setShowSecurityModal(true);
+    }
   }, [onNavigate]);
 
-  const acknowledgeSecurityModal = () => {
-    localStorage.setItem('mynetrunner_security_acknowledged', 'true');
-    setShowSecurityModal(false);
-  };
+  // Build conversations from friends and groups
+  useEffect(() => {
+    const convos: Conversation[] = [];
 
+    friends.forEach(friend => {
+      convos.push({
+        id: `direct-${friend.id}`,
+        type: 'direct',
+        name: friend.username,
+        recipientId: friend.id,
+        unreadCount: 0,
+      });
+    });
+
+    groups.forEach(group => {
+      convos.push({
+        id: `group-${group.id}`,
+        type: 'group',
+        name: group.name,
+        groupId: group.id,
+        unreadCount: 0,
+      });
+    });
+
+    setConversations(convos);
+  }, [friends, groups]);
+
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // WebSocket connection
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const wsUrl = 'http://localhost:8080/ws';
+    const chatWs = initializeChatWebSocket(wsUrl);
+
+    const handleMessage = (message: Message) => {
+      if (!message.timestamp) {
+        message.timestamp = new Date().toISOString();
+      }
+
+      // Update conversation last message
+      setConversations(prev => prev.map(conv => {
+        if (conv.type === 'direct' && (conv.recipientId === message.senderId || conv.recipientId === message.receiverId)) {
+          return {
+            ...conv,
+            lastMessage: message.content.substring(0, 50),
+            lastMessageTime: message.timestamp,
+            unreadCount: selectedConversation?.id === conv.id ? 0 : conv.unreadCount + 1,
+          };
+        }
+        if (conv.type === 'group' && conv.groupId === message.groupId) {
+          return {
+            ...conv,
+            lastMessage: `${message.senderUsername}: ${message.content.substring(0, 40)}`,
+            lastMessageTime: message.timestamp,
+            unreadCount: selectedConversation?.id === conv.id ? 0 : conv.unreadCount + 1,
+          };
+        }
+        return conv;
+      }));
+
+      // Add to messages if in the right conversation
+      if (selectedConversation) {
+        const isDirectMatch = selectedConversation.type === 'direct' &&
+          (message.senderId === selectedConversation.recipientId || message.receiverId === selectedConversation.recipientId);
+        const isGroupMatch = selectedConversation.type === 'group' && message.groupId === selectedConversation.groupId;
+
+        if (isDirectMatch || isGroupMatch) {
+          setMessages(prev => [...prev, message]);
+        }
+      }
+    };
+
+    const handleError = (error: string) => {
+      console.error('WebSocket error:', error);
+      setIsConnected(false);
+    };
+
+    chatWs.connect(handleMessage, handleError);
+
+    setTimeout(() => {
+      const ws = getChatWebSocket();
+      if (ws && ws.isConnected()) {
+        setIsConnected(true);
+      }
+    }, 1000);
+
+    return () => {
+      disconnectChatWebSocket();
+      setIsConnected(false);
+    };
+  }, [currentUser, selectedConversation]);
+
+  // Key replenishment
+  useEffect(() => {
+    if (!currentUser) return;
+    const stopReplenishment = startPreKeyReplenishment(60000);
+    return () => stopReplenishment();
+  }, [currentUser]);
+
+  // Load functions
   const loadFriends = async () => {
     try {
       const data = await friendsAPI.getFriends();
@@ -122,217 +233,44 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
       const data = await groupsAPI.getMembers(groupId);
       setGroupMembers(data.members || []);
     } catch (e) {
-      console.error('Failed to load group members:', e);
+      console.error('Failed to load members:', e);
     }
   };
 
-  const handleSendFriendRequest = async () => {
-    if (!addFriendUsername.trim()) return;
-    try {
-      await friendsAPI.sendRequest(addFriendUsername.trim());
-      setFriendActionMessage('Friend request sent!');
-      setAddFriendUsername('');
-      setTimeout(() => setFriendActionMessage(''), 3000);
-    } catch (e: any) {
-      setFriendActionMessage(e.response?.data?.error || 'Failed to send request');
-      setTimeout(() => setFriendActionMessage(''), 3000);
-    }
-  };
-
-  const handleAcceptRequest = async (friendshipId: number) => {
-    try {
-      await friendsAPI.acceptRequest(friendshipId);
-      loadFriends();
-      loadPendingRequests();
-    } catch (e) {
-      console.error('Failed to accept:', e);
-    }
-  };
-
-  const handleRejectRequest = async (friendshipId: number) => {
-    try {
-      await friendsAPI.rejectRequest(friendshipId);
-      loadPendingRequests();
-    } catch (e) {
-      console.error('Failed to reject:', e);
-    }
-  };
-
-  const handleCreateGroup = async () => {
-    if (!newGroupName.trim()) return;
-    try {
-      await groupsAPI.create(newGroupName.trim());
-      setNewGroupName('');
-      setShowCreateGroup(false);
-      loadGroups();
-    } catch (e: any) {
-      setGroupActionMessage(e.response?.data?.error || 'Failed to create group');
-      setTimeout(() => setGroupActionMessage(''), 3000);
-    }
-  };
-
-  const handleSelectGroup = async (group: Group) => {
-    setSelectedGroup(group);
-    setChatMode('group');
-    setRecipientUsername('');
-    setRecipientId(null);
+  // Action handlers
+  const handleSelectConversation = async (conv: Conversation) => {
+    setSelectedConversation(conv);
     setMessages([]);
-    await loadGroupMembers(group.id);
-  };
 
-  const handleAddMember = async () => {
-    if (!selectedGroup || !addMemberUsername.trim()) return;
-    try {
-      await groupsAPI.addMember(selectedGroup.id, addMemberUsername.trim());
-      setAddMemberUsername('');
-      setGroupActionMessage('Member added!');
-      loadGroupMembers(selectedGroup.id);
-      loadGroups(); // Refresh sidebar count
-      setTimeout(() => setGroupActionMessage(''), 3000);
-    } catch (e: any) {
-      setGroupActionMessage(e.response?.data?.error || 'Failed to add member');
-      setTimeout(() => setGroupActionMessage(''), 3000);
+    // Clear unread count
+    setConversations(prev => prev.map(c =>
+      c.id === conv.id ? { ...c, unreadCount: 0 } : c
+    ));
+
+    if (conv.type === 'group' && conv.groupId) {
+      await loadGroupMembers(conv.groupId);
     }
   };
-
-  const handleRemoveMember = async (memberId: number) => {
-    if (!selectedGroup) return;
-    try {
-      await groupsAPI.removeMember(selectedGroup.id, memberId);
-      loadGroupMembers(selectedGroup.id);
-    } catch (e: any) {
-      setGroupActionMessage(e.response?.data?.error || 'Failed to remove member');
-      setTimeout(() => setGroupActionMessage(''), 3000);
-    }
-  };
-
-  const handleLeaveGroup = async () => {
-    if (!selectedGroup) return;
-    try {
-      await groupsAPI.leave(selectedGroup.id);
-      setSelectedGroup(null);
-      setChatMode('direct');
-      setShowGroupSettings(false);
-      loadGroups();
-    } catch (e: any) {
-      setGroupActionMessage(e.response?.data?.error || 'Failed to leave group');
-      setTimeout(() => setGroupActionMessage(''), 3000);
-    }
-  };
-
-  const handleDeleteGroup = async () => {
-    if (!selectedGroup) return;
-    if (!confirm('Are you sure you want to delete this group? This cannot be undone.')) return;
-    try {
-      await groupsAPI.delete(selectedGroup.id);
-      setSelectedGroup(null);
-      setChatMode('direct');
-      setShowGroupSettings(false);
-      loadGroups();
-    } catch (e: any) {
-      setGroupActionMessage(e.response?.data?.error || 'Failed to delete group');
-      setTimeout(() => setGroupActionMessage(''), 3000);
-    }
-  };
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const wsUrl = 'http://localhost:8080/ws';
-    const chatWs = initializeChatWebSocket(wsUrl);
-
-    const handleMessage = (message: Message) => {
-      if (!message.timestamp) {
-        message.timestamp = new Date().toISOString();
-      }
-      setMessages(prevMessages => [...prevMessages, message]);
-    };
-
-    const handleError = (error: string) => {
-      console.error('WebSocket error:', error);
-      setIsConnected(false);
-    };
-
-    chatWs.connect(handleMessage, handleError);
-
-    setTimeout(() => {
-      const ws = getChatWebSocket();
-      if (ws && ws.isConnected()) {
-        setIsConnected(true);
-      }
-    }, 1000);
-
-    return () => {
-      disconnectChatWebSocket();
-      setIsConnected(false);
-    };
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    const stopReplenishment = startPreKeyReplenishment(60000);
-    return () => stopReplenishment();
-  }, [currentUser]);
-
-  useEffect(() => {
-    let hiddenTime: number | null = null;
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        hiddenTime = Date.now();
-      } else if (hiddenTime && Date.now() - hiddenTime > 5 * 60 * 1000) {
-        setMessages([]);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
-
-  useEffect(() => {
-    const lookupUser = async () => {
-      const trimmedUsername = recipientUsername.trim();
-      if (!trimmedUsername) {
-        setRecipientId(null);
-        return;
-      }
-      setIsLookingUpUser(true);
-      const user = await userAPI.getByUsername(trimmedUsername);
-      setRecipientId(user?.id || null);
-      setIsLookingUpUser(false);
-    };
-    const debounceTimer = setTimeout(lookupUser, 500);
-    return () => clearTimeout(debounceTimer);
-  }, [recipientUsername]);
 
   const handleSendMessage = async () => {
     const trimmedMessage = newMessage.trim();
-
-    if (!trimmedMessage) {
-      alert('Please enter a message');
-      return;
-    }
+    if (!trimmedMessage || !currentUser || !selectedConversation) return;
 
     if (trimmedMessage.length > 1000) {
       alert('Message too long (max 1000 characters)');
       return;
     }
 
-    if (!currentUser) return;
-
     const chatWs = getChatWebSocket();
     if (!chatWs || !chatWs.isConnected()) {
-      alert('WebSocket not connected. Please wait or refresh the page.');
+      alert('Not connected. Please wait...');
       return;
     }
 
-    if (chatMode === 'group' && selectedGroup) {
-      // Send group message
+    if (selectedConversation.type === 'group' && selectedConversation.groupId) {
       await chatWs.sendGroupMessage(
         currentUser.username,
-        selectedGroup.id,
+        selectedConversation.groupId,
         trimmedMessage,
         messageTTL
       );
@@ -346,17 +284,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
         timestamp: new Date().toISOString(),
         delivered: true,
         isEncrypted: false,
-        groupId: selectedGroup.id,
-        groupName: selectedGroup.name,
+        groupId: selectedConversation.groupId,
       };
       setMessages(prev => [...prev, localMessage]);
-      setNewMessage('');
-    } else if (chatMode === 'direct' && recipientId) {
-      // Send direct message
+    } else if (selectedConversation.type === 'direct' && selectedConversation.recipientId) {
       await chatWs.sendChatMessage(
         currentUser.username,
-        recipientUsername.trim(),
-        recipientId,
+        selectedConversation.name,
+        selectedConversation.recipientId,
         trimmedMessage,
         messageTTL
       );
@@ -365,17 +300,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
         id: Date.now(),
         senderId: currentUser.id,
         senderUsername: currentUser.username,
-        receiverId: recipientId,
+        receiverId: selectedConversation.recipientId,
         content: trimmedMessage,
         timestamp: new Date().toISOString(),
         delivered: true,
         isEncrypted: true,
       };
       setMessages(prev => [...prev, localMessage]);
-      setNewMessage('');
-    } else {
-      alert('Please select a recipient or group');
     }
+
+    setNewMessage('');
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -385,8 +319,89 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const formatTime = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const handleAddFriend = async () => {
+    if (!addFriendUsername.trim()) return;
+    try {
+      await friendsAPI.sendRequest(addFriendUsername.trim());
+      setActionMessage('Friend request sent!');
+      setAddFriendUsername('');
+      setTimeout(() => setActionMessage(''), 3000);
+    } catch (e: any) {
+      setActionMessage(e.response?.data?.error || 'Failed');
+      setTimeout(() => setActionMessage(''), 3000);
+    }
+  };
+
+  const handleAcceptRequest = async (friendshipId: number) => {
+    try {
+      await friendsAPI.acceptRequest(friendshipId);
+      loadFriends();
+      loadPendingRequests();
+    } catch (e) {
+      console.error('Failed:', e);
+    }
+  };
+
+  const handleRejectRequest = async (friendshipId: number) => {
+    try {
+      await friendsAPI.rejectRequest(friendshipId);
+      loadPendingRequests();
+    } catch (e) {
+      console.error('Failed:', e);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return;
+    try {
+      await groupsAPI.create(newGroupName.trim());
+      setNewGroupName('');
+      setShowNewChatModal(false);
+      loadGroups();
+    } catch (e: any) {
+      setActionMessage(e.response?.data?.error || 'Failed');
+      setTimeout(() => setActionMessage(''), 3000);
+    }
+  };
+
+  const handleAddMember = async () => {
+    if (!selectedConversation?.groupId || !addMemberUsername.trim()) return;
+    try {
+      await groupsAPI.addMember(selectedConversation.groupId, addMemberUsername.trim());
+      setAddMemberUsername('');
+      setActionMessage('Member added!');
+      loadGroupMembers(selectedConversation.groupId);
+      loadGroups();
+      setTimeout(() => setActionMessage(''), 3000);
+    } catch (e: any) {
+      setActionMessage(e.response?.data?.error || 'Failed');
+      setTimeout(() => setActionMessage(''), 3000);
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!selectedConversation?.groupId) return;
+    try {
+      await groupsAPI.leave(selectedConversation.groupId);
+      setSelectedConversation(null);
+      setShowGroupSettings(false);
+      loadGroups();
+    } catch (e: any) {
+      setActionMessage(e.response?.data?.error || 'Failed');
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!selectedConversation?.groupId) return;
+    if (!confirm('Delete this group?')) return;
+    try {
+      await groupsAPI.delete(selectedConversation.groupId);
+      setSelectedConversation(null);
+      setShowGroupSettings(false);
+      loadGroups();
+    } catch (e: any) {
+      setActionMessage(e.response?.data?.error || 'Failed');
+    }
   };
 
   const handleLogout = async () => {
@@ -395,26 +410,47 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
     onNavigate('home');
   };
 
-  const selectFriend = (username: string) => {
-    setRecipientUsername(username);
-    setChatMode('direct');
-    setSelectedGroup(null);
-    setMessages([]);
-    setShowFriendsPanel(false);
+  const formatTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+
+    if (isToday) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
-  const switchToDirectChat = () => {
-    setChatMode('direct');
-    setSelectedGroup(null);
-    setMessages([]);
+  const getAvatarColor = (name: string) => {
+    const colors = [
+      'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500',
+      'bg-lime-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500',
+      'bg-cyan-500', 'bg-sky-500', 'bg-blue-500', 'bg-indigo-500',
+      'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500', 'bg-pink-500',
+    ];
+    const index = name.charCodeAt(0) % colors.length;
+    return colors[index];
   };
+
+  const filteredConversations = conversations.filter(conv =>
+    conv.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const acknowledgeSecurityModal = () => {
+    localStorage.setItem('mynetrunner_security_acknowledged', 'true');
+    setShowSecurityModal(false);
+  };
+
+  const selectedGroup = selectedConversation?.type === 'group'
+    ? groups.find(g => g.id === selectedConversation.groupId)
+    : null;
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-indigo-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#17212b] flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading...</p>
         </div>
       </div>
     );
@@ -423,65 +459,151 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
   if (!currentUser) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-indigo-50 flex flex-col">
+    <div className="h-screen bg-[#17212b] flex overflow-hidden">
       {/* Security Modal */}
       {showSecurityModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-8 text-white text-center">
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#232e3c] rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden border border-[#3a4a5b]">
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-8 text-white text-center">
               <Shield className="w-16 h-16 mx-auto mb-4" />
               <h2 className="text-2xl font-bold">Welcome to MyNetRunner</h2>
-              <p className="text-indigo-100 mt-2">Privacy-First Secure Messaging</p>
+              <p className="text-purple-200 mt-2">Privacy-First Secure Messaging</p>
             </div>
 
             <div className="px-6 py-6 space-y-4">
-              <div className="bg-amber-50 border-2 border-amber-400 rounded-xl p-4">
+              <div className="bg-amber-900/30 border border-amber-700 rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-bold text-amber-800">VPN Strongly Recommended</h3>
-                    <p className="text-sm text-amber-700 mt-1">
-                      While your messages are end-to-end encrypted, your IP address is still visible to our servers.
-                      For maximum privacy and anonymity, <strong>we strongly recommend using a trusted VPN</strong>.
+                    <h3 className="font-bold text-amber-400">VPN Recommended</h3>
+                    <p className="text-sm text-amber-200/80 mt-1">
+                      Use a trusted VPN for maximum privacy and anonymity.
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <div className="bg-blue-900/30 border border-blue-700 rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                  <Clock className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <Clock className="w-6 h-6 text-blue-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-bold text-blue-800">Message Auto-Delete</h3>
-                    <ul className="text-sm text-blue-700 mt-2 space-y-1">
-                      <li><strong>Recipient online:</strong> Deleted from server immediately after delivery</li>
-                      <li><strong>Recipient offline:</strong> Auto-deleted after your chosen time</li>
-                    </ul>
+                    <h3 className="font-bold text-blue-400">Auto-Delete Messages</h3>
+                    <p className="text-sm text-blue-200/80 mt-1">
+                      Messages are deleted immediately after delivery or after TTL expires.
+                    </p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+              <div className="bg-green-900/30 border border-green-700 rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                  <Lock className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+                  <Lock className="w-6 h-6 text-green-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-bold text-green-800">End-to-End Encrypted</h3>
-                    <p className="text-sm text-green-700 mt-1">
-                      Direct messages are encrypted. The server <strong>cannot read your messages</strong>.
-                      <br /><span className="text-amber-600">Note: Group messages are not yet E2E encrypted.</span>
+                    <h3 className="font-bold text-green-400">End-to-End Encrypted</h3>
+                    <p className="text-sm text-green-200/80 mt-1">
+                      Direct messages are E2E encrypted. Server cannot read them.
                     </p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+            <div className="px-6 py-4 bg-[#1c2836] border-t border-[#3a4a5b]">
               <button
                 onClick={acknowledgeSecurityModal}
-                className="w-full bg-indigo-600 text-white font-semibold py-3 px-6 rounded-xl hover:bg-indigo-700 transition-colors"
+                className="w-full bg-purple-600 text-white font-semibold py-3 px-6 rounded-xl hover:bg-purple-700 transition-colors"
               >
-                I Understand — Continue to Chat
+                I Understand — Continue
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Chat Modal */}
+      {showNewChatModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#232e3c] rounded-2xl w-full max-w-md shadow-2xl border border-[#3a4a5b]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#3a4a5b]">
+              <h2 className="text-lg font-semibold text-white">New Chat</h2>
+              <button onClick={() => setShowNewChatModal(false)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Add Friend */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Add Friend</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={addFriendUsername}
+                    onChange={(e) => setAddFriendUsername(e.target.value)}
+                    placeholder="Username"
+                    className="flex-1 bg-[#17212b] border border-[#3a4a5b] rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                  />
+                  <button
+                    onClick={handleAddFriend}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+                  >
+                    <UserPlus className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Pending Requests */}
+              {pendingRequests.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Pending Requests ({pendingRequests.length})
+                  </label>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {pendingRequests.map((req) => (
+                      <div key={req.friendshipId} className="flex items-center justify-between bg-[#17212b] rounded-lg px-3 py-2">
+                        <span className="text-white">{req.username}</span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => handleAcceptRequest(req.friendshipId)}
+                            className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleRejectRequest(req.friendshipId)}
+                            className="p-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-[#3a4a5b] pt-6">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Create Group</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="Group name"
+                    className="flex-1 bg-[#17212b] border border-[#3a4a5b] rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                  />
+                  <button
+                    onClick={handleCreateGroup}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
+
+              {actionMessage && (
+                <p className="text-sm text-purple-400 text-center">{actionMessage}</p>
+              )}
             </div>
           </div>
         </div>
@@ -489,31 +611,30 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
 
       {/* Group Settings Modal */}
       {showGroupSettings && selectedGroup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
-            <div className="bg-indigo-600 px-6 py-4 text-white flex items-center justify-between">
-              <h2 className="text-lg font-bold">{selectedGroup.name}</h2>
-              <button onClick={() => setShowGroupSettings(false)}>
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#232e3c] rounded-2xl w-full max-w-md shadow-2xl border border-[#3a4a5b]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#3a4a5b]">
+              <h2 className="text-lg font-semibold text-white">{selectedConversation?.name}</h2>
+              <button onClick={() => setShowGroupSettings(false)} className="text-gray-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-4">
-              {/* Add Member */}
               {(selectedGroup.myRole === 'OWNER' || selectedGroup.myRole === 'ADMIN') && (
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Add Member</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Add Member</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={addMemberUsername}
                       onChange={(e) => setAddMemberUsername(e.target.value)}
                       placeholder="Username"
-                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      className="flex-1 bg-[#17212b] border border-[#3a4a5b] rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
                     />
                     <button
                       onClick={handleAddMember}
-                      className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700"
+                      className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
                     >
                       Add
                     </button>
@@ -521,46 +642,36 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
                 </div>
               )}
 
-              {groupActionMessage && (
-                <p className="text-sm text-indigo-600">{groupActionMessage}</p>
-              )}
-
-              {/* Members List */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Members ({groupMembers.length})
                 </label>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {groupMembers.map((member) => (
-                    <div key={member.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-semibold text-sm">
+                    <div key={member.id} className="flex items-center justify-between bg-[#17212b] rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full ${getAvatarColor(member.username)} flex items-center justify-center text-white font-semibold text-sm`}>
                           {member.username[0].toUpperCase()}
                         </div>
-                        <span className="text-sm">{member.username}</span>
-                        <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded">
-                          {member.role}
-                        </span>
+                        <div>
+                          <span className="text-white">{member.username}</span>
+                          <span className="text-xs text-gray-500 ml-2">{member.role}</span>
+                        </div>
                       </div>
-                      {selectedGroup.myRole === 'OWNER' && member.role !== 'OWNER' && (
-                        <button
-                          onClick={() => handleRemoveMember(member.id)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="pt-4 border-t border-gray-200 space-y-2">
+              {actionMessage && (
+                <p className="text-sm text-purple-400">{actionMessage}</p>
+              )}
+
+              <div className="pt-4 border-t border-[#3a4a5b] space-y-2">
                 {selectedGroup.myRole !== 'OWNER' && (
                   <button
                     onClick={handleLeaveGroup}
-                    className="w-full py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="w-full py-2 text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
                   >
                     Leave Group
                   </button>
@@ -568,9 +679,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
                 {selectedGroup.myRole === 'OWNER' && (
                   <button
                     onClick={handleDeleteGroup}
-                    className="w-full py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    className="w-full py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors"
                   >
-                    <Trash2 className="w-4 h-4" />
                     Delete Group
                   </button>
                 )}
@@ -580,360 +690,338 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <MessageSquare className="w-8 h-8 text-indigo-600" strokeWidth={2.5} />
-            <div>
-              <span className="text-lg sm:text-xl font-semibold text-gray-900">MyNetRunner</span>
-              <p className="text-xs text-gray-500 flex items-center gap-1">
-                {isConnected ? '🟢 Connected' : '🔴 Disconnected'}
-                {chatMode === 'direct' && (
-                  <>
-                    <Lock className="w-3 h-3 text-green-600 ml-1" />
-                    <span className="text-green-600">E2E Encrypted</span>
-                  </>
-                )}
-                {chatMode === 'group' && (
-                  <span className="text-amber-600 ml-1">Group Chat</span>
-                )}
-              </p>
-            </div>
-          </div>
-
+      {/* Left Sidebar - Conversation List */}
+      <div className="w-80 bg-[#17212b] border-r border-[#232e3c] flex flex-col">
+        {/* Sidebar Header */}
+        <div className="p-3 flex items-center justify-between border-b border-[#232e3c]">
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className="p-2 text-gray-400 hover:text-white hover:bg-[#232e3c] rounded-lg"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowSecurityModal(true)}
-              className="bg-amber-100 text-amber-700 p-2 rounded-lg hover:bg-amber-200"
-              title="Security Info"
-            >
-              <Shield className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setShowFriendsPanel(!showFriendsPanel)}
-              className="relative bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 flex items-center gap-2"
-            >
-              <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Friends</span>
-              {pendingRequests.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-                  {pendingRequests.length}
-                </span>
-              )}
-            </button>
-            <span className="text-sm text-gray-600 hidden sm:block">{currentUser.username}</span>
-            <button
-              onClick={handleLogout}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className="text-sm text-gray-400">{currentUser.username}</span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="p-2 text-gray-400 hover:text-red-400 hover:bg-[#232e3c] rounded-lg"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="p-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search"
+              className="w-full bg-[#232e3c] border-none rounded-lg pl-10 pr-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            />
           </div>
         </div>
-      </div>
 
-      {/* VPN Banner */}
-      <div className="bg-amber-50 border-b border-amber-200 px-4 py-2">
-        <div className="max-w-7xl mx-auto flex items-center justify-center gap-2 text-sm">
-          <AlertTriangle className="w-4 h-4 text-amber-600" />
-          <span className="text-amber-800">
-            <strong>Privacy Tip:</strong> Use a trusted VPN for maximum anonymity.
-          </span>
-        </div>
-      </div>
-
-      <div className="flex-1 flex max-w-7xl mx-auto w-full">
-        {/* Sidebar - Friends & Groups */}
-        {showFriendsPanel && (
-          <div className="w-72 bg-white border-r border-gray-200 p-4 overflow-y-auto">
-            {/* Tabs */}
-            <div className="flex gap-2 mb-4">
+        {/* Conversation List */}
+        <div className="flex-1 overflow-y-auto">
+          {filteredConversations.length === 0 ? (
+            <div className="p-4 text-center text-gray-500">
+              <p>No conversations yet</p>
               <button
-                onClick={() => switchToDirectChat()}
-                className={`flex-1 py-2 text-sm rounded-lg ${chatMode === 'direct' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                onClick={() => setShowNewChatModal(true)}
+                className="mt-2 text-purple-400 hover:text-purple-300"
               >
-                Direct
-              </button>
-              <button
-                onClick={() => setChatMode('group')}
-                className={`flex-1 py-2 text-sm rounded-lg ${chatMode === 'group' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-              >
-                Groups
+                Start a new chat
               </button>
             </div>
-
-            {chatMode === 'direct' ? (
-              <>
-                {/* Add Friend */}
-                <div className="mb-4">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={addFriendUsername}
-                      onChange={(e) => setAddFriendUsername(e.target.value)}
-                      placeholder="Add friend"
-                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    />
-                    <button onClick={handleSendFriendRequest} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700">
-                      <UserPlus className="w-4 h-4" />
-                    </button>
-                  </div>
-                  {friendActionMessage && <p className="text-xs mt-1 text-indigo-600">{friendActionMessage}</p>}
-                </div>
-
-                {/* Pending Requests */}
-                {pendingRequests.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Pending</h4>
-                    {pendingRequests.map((req) => (
-                      <div key={req.friendshipId} className="flex items-center justify-between py-2">
-                        <span className="text-sm">{req.username}</span>
-                        <div className="flex gap-1">
-                          <button onClick={() => handleAcceptRequest(req.friendshipId)} className="p-1 bg-green-100 text-green-600 rounded">
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleRejectRequest(req.friendshipId)} className="p-1 bg-red-100 text-red-600 rounded">
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Friends List */}
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Friends</h4>
-                  {friends.length === 0 ? (
-                    <p className="text-sm text-gray-400">No friends yet</p>
+          ) : (
+            filteredConversations.map((conv) => (
+              <div
+                key={conv.id}
+                onClick={() => handleSelectConversation(conv)}
+                className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                  selectedConversation?.id === conv.id
+                    ? 'bg-[#2b5278]'
+                    : 'hover:bg-[#232e3c]'
+                }`}
+              >
+                <div className={`w-12 h-12 rounded-full ${getAvatarColor(conv.name)} flex items-center justify-center text-white font-semibold text-lg flex-shrink-0`}>
+                  {conv.type === 'group' ? (
+                    <Users className="w-6 h-6" />
                   ) : (
-                    friends.map((friend) => (
-                      <button
-                        key={friend.id}
-                        onClick={() => selectFriend(friend.username)}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm flex items-center gap-2"
-                      >
-                        <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-semibold">
-                          {friend.username[0].toUpperCase()}
-                        </div>
-                        {friend.username}
-                      </button>
-                    ))
+                    conv.name[0].toUpperCase()
                   )}
                 </div>
-              </>
-            ) : (
-              <>
-                {/* Create Group */}
-                {showCreateGroup ? (
-                  <div className="mb-4">
-                    <input
-                      type="text"
-                      value={newGroupName}
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                      placeholder="Group name"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm mb-2"
-                    />
-                    <div className="flex gap-2">
-                      <button onClick={handleCreateGroup} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm hover:bg-indigo-700">
-                        Create
-                      </button>
-                      <button onClick={() => setShowCreateGroup(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg text-sm">
-                        Cancel
-                      </button>
-                    </div>
-                    {groupActionMessage && <p className="text-xs mt-1 text-red-500">{groupActionMessage}</p>}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-white truncate">{conv.name}</span>
+                    {conv.lastMessageTime && (
+                      <span className="text-xs text-gray-500">{formatTime(conv.lastMessageTime)}</span>
+                    )}
                   </div>
-                ) : (
-                  <button
-                    onClick={() => setShowCreateGroup(true)}
-                    className="w-full mb-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-indigo-500 hover:text-indigo-500 flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Group
-                  </button>
-                )}
-
-                {/* Groups List */}
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Your Groups</h4>
-                  {groups.length === 0 ? (
-                    <p className="text-sm text-gray-400">No groups yet</p>
-                  ) : (
-                    groups.map((group) => (
-                      <button
-                        key={group.id}
-                        onClick={() => handleSelectGroup(group)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between ${
-                          selectedGroup?.id === group.id ? 'bg-indigo-100' : 'hover:bg-gray-100'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 font-semibold">
-                            {group.name[0].toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="font-medium">{group.name}</p>
-                            <p className="text-xs text-gray-500">{group.memberCount} members</p>
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Main Chat Area */}
-        <div className="flex-1 flex flex-col p-4">
-          {/* Chat Header */}
-          <div className="bg-white rounded-lg shadow-md p-4 mb-4">
-            {chatMode === 'direct' ? (
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="flex-1">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Send message to:</label>
-                  <input
-                    type="text"
-                    value={recipientUsername}
-                    onChange={(e) => setRecipientUsername(e.target.value)}
-                    placeholder="Enter username"
-                    className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-600 focus:outline-none"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    {isLookingUpUser ? 'Looking up...' : recipientId ? (
-                      <span className="text-green-600">✓ User found - E2E encrypted</span>
-                    ) : recipientUsername.trim() ? (
-                      <span className="text-red-500">✗ User not found</span>
-                    ) : 'Enter username or select from friends'}
-                  </p>
-                </div>
-
-                <div className="sm:w-48">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
-                    <Clock className="w-4 h-4" /> Expires in:
-                  </label>
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowTTLDropdown(!showTTLDropdown)}
-                      className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg bg-white text-left flex items-center justify-between"
-                    >
-                      <span>{TTL_OPTIONS.find(o => o.value === messageTTL)?.label}</span>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
-                    </button>
-                    {showTTLDropdown && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                        {TTL_OPTIONS.map((option) => (
-                          <button
-                            key={option.value}
-                            onClick={() => { setMessageTTL(option.value); setShowTTLDropdown(false); }}
-                            className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${messageTTL === option.value ? 'bg-indigo-50 text-indigo-600' : ''}`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-400 truncate">
+                      {conv.lastMessage || (conv.type === 'group' ? 'Group chat' : 'Start chatting')}
+                    </span>
+                    {conv.unreadCount > 0 && (
+                      <span className="bg-purple-600 text-white text-xs font-medium px-2 py-0.5 rounded-full">
+                        {conv.unreadCount}
+                      </span>
                     )}
                   </div>
                 </div>
               </div>
-            ) : selectedGroup ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 font-bold">
-                    {selectedGroup.name[0].toUpperCase()}
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">{selectedGroup.name}</h3>
-                    <p className="text-xs text-gray-500">{groupMembers.length} members</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowGroupSettings(true)}
-                  className="p-2 hover:bg-gray-100 rounded-lg"
-                >
-                  <Settings className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center">Select a group from the sidebar</p>
-            )}
-          </div>
+            ))
+          )}
+        </div>
 
-          {/* Messages */}
-          <div className="flex-1 bg-white rounded-lg shadow-md p-4 mb-4 overflow-y-auto min-h-[300px]">
-            {messages.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center text-gray-500">
-                  <Send className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p className="text-lg font-medium">No messages yet</p>
-                  <p className="text-sm mt-1">
-                    {chatMode === 'direct' ? 'Select a friend to start chatting' : 'Send a message to the group'}
+        {/* New Chat Button */}
+        <div className="p-3 border-t border-[#232e3c]">
+          <button
+            onClick={() => setShowNewChatModal(true)}
+            className="w-full bg-purple-600 text-white py-2.5 rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <Plus className="w-5 h-5" />
+            New Chat
+          </button>
+        </div>
+      </div>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col bg-[#0e1621]">
+        {selectedConversation ? (
+          <>
+            {/* Chat Header */}
+            <div className="h-14 px-4 flex items-center justify-between bg-[#17212b] border-b border-[#232e3c]">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full ${getAvatarColor(selectedConversation.name)} flex items-center justify-center text-white font-semibold`}>
+                  {selectedConversation.type === 'group' ? (
+                    <Users className="w-5 h-5" />
+                  ) : (
+                    selectedConversation.name[0].toUpperCase()
+                  )}
+                </div>
+                <div>
+                  <h2 className="font-semibold text-white">{selectedConversation.name}</h2>
+                  <p className="text-xs text-gray-400">
+                    {selectedConversation.type === 'group'
+                      ? `${groupMembers.length} members`
+                      : (
+                        <span className="flex items-center gap-1">
+                          <Lock className="w-3 h-3 text-green-500" />
+                          End-to-end encrypted
+                        </span>
+                      )}
                   </p>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {messages.map((message, index) => {
+              <div className="flex items-center gap-2">
+                {selectedConversation.type === 'group' && (
+                  <button
+                    onClick={() => setShowGroupSettings(true)}
+                    className="p-2 text-gray-400 hover:text-white hover:bg-[#232e3c] rounded-lg"
+                  >
+                    <Settings className="w-5 h-5" />
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowSecurityModal(true)}
+                  className="p-2 text-gray-400 hover:text-white hover:bg-[#232e3c] rounded-lg"
+                >
+                  <Shield className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div
+              className="flex-1 overflow-y-auto p-4 space-y-2"
+              style={{
+                backgroundImage: 'url("data:image/svg+xml,%3Csvg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="none" fill-rule="evenodd"%3E%3Cg fill="%23232e3c" fill-opacity="0.4"%3E%3Cpath d="M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z"/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
+              }}
+            >
+              {messages.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center text-gray-500">
+                    <Send className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>No messages yet</p>
+                    <p className="text-sm mt-1">Send a message to start the conversation</p>
+                  </div>
+                </div>
+              ) : (
+                messages.map((message, index) => {
                   const isSentByMe = message.senderUsername === currentUser.username;
                   return (
-                    <div key={index} className={`flex ${isSentByMe ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
-                        isSentByMe ? 'bg-indigo-600 text-white' : 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                      }`}>
-                        <p className="text-xs font-semibold mb-1 flex items-center gap-1">
-                          {isSentByMe ? 'You' : message.senderUsername}
-                          {message.isEncrypted && (
-                            <Lock className={`w-3 h-3 ${isSentByMe ? 'text-indigo-200' : 'text-green-600'}`} />
+                    <div
+                      key={index}
+                      className={`flex ${isSentByMe ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[70%] px-3 py-2 rounded-xl ${
+                          isSentByMe
+                            ? 'bg-[#766ac8] text-white rounded-br-sm'
+                            : 'bg-[#182533] text-white rounded-bl-sm'
+                        }`}
+                      >
+                        {selectedConversation.type === 'group' && !isSentByMe && (
+                          <p className="text-xs font-semibold text-purple-400 mb-1">
+                            {message.senderUsername}
+                          </p>
+                        )}
+                        <p className="text-sm break-words">{message.content}</p>
+                        <div className={`flex items-center justify-end gap-1 mt-1 ${isSentByMe ? 'text-purple-200' : 'text-gray-500'}`}>
+                          <span className="text-xs">{formatTime(message.timestamp)}</span>
+                          {isSentByMe && message.isEncrypted && (
+                            <Lock className="w-3 h-3" />
                           )}
-                        </p>
-                        <p className="text-sm">{message.content}</p>
-                        <p className={`text-xs mt-1 ${isSentByMe ? 'text-indigo-100' : 'text-gray-500'}`}>
-                          {formatTime(message.timestamp)}
-                        </p>
+                          {isSentByMe && (
+                            <Check className="w-3 h-3" />
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
-                })}
-                <div ref={messagesEndRef} />
-              </div>
-            )}
-          </div>
+                })
+              )}
+              <div ref={messagesEndRef} />
+            </div>
 
-          {/* Input */}
-          <div className="bg-white rounded-lg shadow-md p-4">
-            <div className="flex items-center gap-3">
-              <textarea
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder={
-                  chatMode === 'group'
-                    ? selectedGroup ? 'Type a message...' : 'Select a group first'
-                    : recipientId ? 'Type an encrypted message...' : 'Select a recipient first'
-                }
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"
-                rows={1}
-                disabled={chatMode === 'group' ? !selectedGroup : !recipientId}
-                maxLength={1000}
-              />
+            {/* Message Input */}
+            <div className="p-3 bg-[#17212b] border-t border-[#232e3c]">
+              <div className="flex items-center gap-2">
+                {/* TTL Selector */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowTTLDropdown(!showTTLDropdown)}
+                    className="p-2.5 text-gray-400 hover:text-white hover:bg-[#232e3c] rounded-lg flex items-center gap-1"
+                    title="Message expiration"
+                  >
+                    <Clock className="w-5 h-5" />
+                    <span className="text-xs">{TTL_OPTIONS.find(o => o.value === messageTTL)?.label}</span>
+                  </button>
+                  {showTTLDropdown && (
+                    <div className="absolute bottom-full left-0 mb-2 bg-[#232e3c] border border-[#3a4a5b] rounded-lg shadow-lg overflow-hidden">
+                      {TTL_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => {
+                            setMessageTTL(option.value);
+                            setShowTTLDropdown(false);
+                          }}
+                          className={`w-full px-4 py-2 text-left text-sm hover:bg-[#2b5278] ${
+                            messageTTL === option.value ? 'bg-purple-600 text-white' : 'text-gray-300'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Write a message..."
+                    className="w-full bg-[#232e3c] border-none rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    maxLength={1000}
+                  />
+                </div>
+
+                <button
+                  onClick={handleSendMessage}
+                  disabled={!newMessage.trim()}
+                  className="p-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center bg-[#0e1621]">
+            <div className="text-center text-gray-500">
+              <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <h2 className="text-xl font-medium text-gray-400">MyNetRunner</h2>
+              <p className="mt-2">Select a chat to start messaging</p>
               <button
-                onClick={handleSendMessage}
-                disabled={!newMessage.trim() || (chatMode === 'group' ? !selectedGroup : !recipientId)}
-                className="bg-indigo-600 text-white p-3 rounded-2xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => setShowNewChatModal(true)}
+                className="mt-4 bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition-colors"
               >
-                <Send className="w-5 h-5" />
+                Start New Chat
               </button>
             </div>
-            <p className="text-xs text-gray-500 mt-1">{newMessage.length}/1000</p>
+          </div>
+        )}
+      </div>
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#232e3c] rounded-2xl w-full max-w-md shadow-2xl border border-[#3a4a5b]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#3a4a5b]">
+              <h2 className="text-lg font-semibold text-white">Settings</h2>
+              <button onClick={() => setShowSettingsModal(false)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-4">
+                <div className={`w-16 h-16 rounded-full ${getAvatarColor(currentUser.username)} flex items-center justify-center text-white font-bold text-2xl`}>
+                  {currentUser.username[0].toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">{currentUser.username}</h3>
+                  <p className="text-sm text-gray-400">ID: {currentUser.id}</p>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-[#3a4a5b]">
+                <button
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    setShowSecurityModal(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left text-gray-300 hover:bg-[#17212b] rounded-lg transition-colors"
+                >
+                  <Shield className="w-5 h-5 text-purple-400" />
+                  Security & Privacy Info
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-[#3a4a5b]">
+                <button
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    handleLogout();
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
+                >
+                  <LogOut className="w-5 h-5" />
+                  Logout
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
+
+// Add missing import
+const MessageSquare = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+  </svg>
+);
 
 export default ChatPage;
