@@ -30,6 +30,10 @@ public class Message {
     @Column(nullable = false)
     private Long receiverId;
 
+    // For group messages - null for direct messages
+    @Column
+    private Long groupId;
+
     // Stores either plaintext or encrypted content (base64)
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
@@ -54,6 +58,8 @@ public class Message {
     @PrePersist
     protected void onCreate() {
         timestamp = LocalDateTime.now();
-        expiresAt = LocalDateTime.now().plusDays(30);
+        if (expiresAt == null) {
+            expiresAt = LocalDateTime.now().plusMinutes(5);
+        }
     }
 }

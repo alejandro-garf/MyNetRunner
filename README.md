@@ -122,13 +122,13 @@
 - [x] API integration (auth, messaging)
 
 ### Phase 2: Polish ⬜ TODO
-- [ ] User presence indicators (online/offline dots)
-- [ ] Error handling and loading states
-- [ ] Responsive design 
-- [ ] Message timestamps and formatting
+- [x] User presence indicators (online/offline dots)
+- [x] Error handling and loading states
+- [x] Responsive design 
+- [x] Message timestamps and formatting
 
 ### Phase 3: Future ⬜ FUTURE
-- [ ] E2E encryption UI (key management)
+- [x] E2E encryption UI (key management)
 - [ ] Group chat UI
 - [ ] Typing indicators
 - [ ] Read receipts UI

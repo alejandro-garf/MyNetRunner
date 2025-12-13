@@ -1,19 +1,25 @@
 package com.mynetrunner.backend.controller;
 
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.stereotype.Controller;
 
+import com.mynetrunner.backend.dto.message.GroupMessageRequest;
 import com.mynetrunner.backend.dto.message.MessageRequest;
 import com.mynetrunner.backend.dto.message.MessageResponse;
 import com.mynetrunner.backend.exception.MessageDeliveryException;
 import com.mynetrunner.backend.exception.UserNotFoundException;
+import com.mynetrunner.backend.model.Group;
 import com.mynetrunner.backend.model.Message;
 import com.mynetrunner.backend.model.User;
 import com.mynetrunner.backend.repository.UserRepository;
 import com.mynetrunner.backend.service.FriendshipService;
+import com.mynetrunner.backend.service.GroupService;
 import com.mynetrunner.backend.service.MessageService;
 import com.mynetrunner.backend.service.RateLimitService;
 import com.mynetrunner.backend.util.SanitizationUtil;
@@ -30,6 +36,9 @@ public class WebSocketMessageController {
     private SimpMessagingTemplate messagingTemplate;
 
     @Autowired
+    private SimpUserRegistry userRegistry;
+
+    @Autowired
     private MessageService messageService;
 
     @Autowired
@@ -44,12 +53,12 @@ public class WebSocketMessageController {
     @Autowired
     private FriendshipService friendshipService;
 
+    @Autowired
+    private GroupService groupService;
+
     @MessageMapping("/send")
     public void sendMessage(@Valid @Payload MessageRequest request) {
         try {
-            // PRIVACY: No logging
-
-            // Check rate limit
             if (!rateLimitService.isAllowed(request.getSenderUsername(), "message", MESSAGE_MAX_ATTEMPTS, MESSAGE_WINDOW_SECONDS)) {
                 messagingTemplate.convertAndSendToUser(
                         request.getSenderUsername(),
@@ -63,15 +72,6 @@ public class WebSocketMessageController {
 
             User receiver = userRepository.findByUsername(request.getRecipientUsername())
                     .orElseThrow(() -> new UserNotFoundException("Recipient not found"));
-
-            // Check if users are friends (optional - comment out to disable)
-            // if (!friendshipService.areFriends(sender.getId(), receiver.getId())) {
-            //     messagingTemplate.convertAndSendToUser(
-            //             request.getSenderUsername(),
-            //             "/queue/errors",
-            //             new ErrorMessage("You can only message friends."));
-            //     return;
-            // }
 
             String contentToStore;
             String iv = null;
@@ -91,7 +91,6 @@ public class WebSocketMessageController {
                 }
             }
 
-            // Use custom TTL from request
             int ttlMinutes = request.getTtlMinutes() != null ? request.getTtlMinutes() : 5;
 
             Message message = messageService.sendMessage(
@@ -102,7 +101,6 @@ public class WebSocketMessageController {
                     isEncrypted,
                     ttlMinutes);
 
-            // Build response
             MessageResponse response = new MessageResponse();
             response.setId(message.getId());
             response.setSenderId(sender.getId());
@@ -128,13 +126,116 @@ public class WebSocketMessageController {
                     "/queue/messages",
                     response);
 
-            // Immediately delete after delivery
             messageService.markAsDelivered(message.getId());
 
         } catch (UserNotFoundException e) {
             throw e;
         } catch (Exception e) {
             throw new MessageDeliveryException("Failed to deliver message");
+        }
+    }
+
+    @MessageMapping("/send-group")
+    public void sendGroupMessage(@Valid @Payload GroupMessageRequest request) {
+        try {
+            if (!rateLimitService.isAllowed(request.getSenderUsername(), "message", MESSAGE_MAX_ATTEMPTS, MESSAGE_WINDOW_SECONDS)) {
+                messagingTemplate.convertAndSendToUser(
+                        request.getSenderUsername(),
+                        "/queue/errors",
+                        new ErrorMessage("Rate limit exceeded. Please slow down."));
+                return;
+            }
+
+            User sender = userRepository.findByUsername(request.getSenderUsername())
+                    .orElseThrow(() -> new UserNotFoundException("Sender not found"));
+
+            // Verify sender is member of group
+            if (!groupService.isMember(request.getGroupId(), sender.getId())) {
+                messagingTemplate.convertAndSendToUser(
+                        request.getSenderUsername(),
+                        "/queue/errors",
+                        new ErrorMessage("You are not a member of this group."));
+                return;
+            }
+
+            Group group = groupService.getGroup(request.getGroupId());
+            List<Long> memberIds = groupService.getGroupMemberIds(request.getGroupId());
+
+            String contentToStore;
+            String iv = null;
+            boolean isEncrypted = Boolean.TRUE.equals(request.getIsEncrypted());
+
+            if (isEncrypted && request.getEncryptedContent() != null) {
+                contentToStore = request.getEncryptedContent();
+                iv = request.getIv();
+            } else {
+                contentToStore = sanitizationUtil.sanitize(request.getContent());
+                if (sanitizationUtil.containsDangerousContent(request.getContent())) {
+                    messagingTemplate.convertAndSendToUser(
+                            request.getSenderUsername(),
+                            "/queue/errors",
+                            new ErrorMessage("Message contains invalid content."));
+                    return;
+                }
+            }
+
+            int ttlMinutes = request.getTtlMinutes() != null ? request.getTtlMinutes() : 5;
+
+            // Store messages for all members (for offline delivery)
+            messageService.sendGroupMessage(
+                    sender.getId(),
+                    request.getGroupId(),
+                    memberIds,
+                    contentToStore,
+                    iv,
+                    isEncrypted,
+                    ttlMinutes);
+
+            // Send to online members immediately
+            for (Long memberId : memberIds) {
+                if (memberId.equals(sender.getId())) {
+                    continue; // Don't send to self
+                }
+
+                User member = userRepository.findById(memberId).orElse(null);
+                if (member == null) continue;
+
+                // Check if user is online
+                boolean isOnline = userRegistry.getUser(member.getUsername()) != null;
+
+                if (isOnline) {
+                    MessageResponse response = new MessageResponse();
+                    response.setId(System.currentTimeMillis());
+                    response.setSenderId(sender.getId());
+                    response.setSenderUsername(sender.getUsername());
+                    response.setReceiverId(memberId);
+                    response.setDelivered(true);
+                    response.setIsEncrypted(isEncrypted);
+                    response.setGroupId(request.getGroupId());
+                    response.setGroupName(group.getName());
+
+                    if (isEncrypted) {
+                        response.setEncryptedContent(contentToStore);
+                        response.setIv(iv);
+                        response.setSenderIdentityKey(request.getSenderIdentityKey());
+                        response.setSenderEphemeralKey(request.getSenderEphemeralKey());
+                        response.setUsedOneTimePreKeyId(request.getUsedOneTimePreKeyId());
+                        response.setTimestamp(null);
+                    } else {
+                        response.setContent(contentToStore);
+                        response.setTimestamp(java.time.LocalDateTime.now());
+                    }
+
+                    messagingTemplate.convertAndSendToUser(
+                            member.getUsername(),
+                            "/queue/messages",
+                            response);
+                }
+                // If offline, message stays in DB until they come online
+            }
+
+        } catch (Exception e) {
+            throw new MessageDeliveryException("Failed to deliver group message: " + e.getMessage());
         }
     }
 
