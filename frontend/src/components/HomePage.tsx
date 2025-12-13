@@ -104,7 +104,7 @@ const FEATURES: FeatureInfo[] = [
       ],
     },
   },
-  {
+   {
     id: 'no-logs',
     icon: <Shield className="w-6 h-6" />,
     title: 'No Logs',
@@ -112,26 +112,26 @@ const FEATURES: FeatureInfo[] = [
     color: 'green',
     details: {
       headline: 'Privacy Beyond Messages',
-      explanation: 'We don\'t just protect your message content — we minimize all data collection. No IP logs, no usage analytics, no behavioral tracking.',
+      explanation: 'MyNetRunner does not log your IP address or connection metadata. However, your browser, ISP, and network may still track your activity. For complete anonymity, we strongly recommend additional precautions.',
       points: [
         {
           icon: <Server className="w-5 h-5" />,
-          title: 'No IP Logging',
-          description: 'We don\'t store your IP address or connection metadata. Use a VPN for additional anonymity.',
+          title: 'Server-Side: No IP Logging',
+          description: 'We\'ve disabled all IP and access logging on our servers. Your connection details are never stored by us.',
         },
         {
           icon: <EyeOff className="w-5 h-5" />,
-          title: 'No Analytics',
-          description: 'No third-party analytics, no tracking pixels, no behavioral profiling. Your usage is your business.',
+          title: 'Use a Trusted VPN',
+          description: 'Your ISP and network can still see you\'re connecting to our servers. A VPN hides this from everyone except the VPN provider.',
         },
         {
           icon: <Database className="w-5 h-5" />,
-          title: 'Minimal Data Retention',
-          description: 'We store only what\'s necessary: your username and public keys. Nothing else.',
+          title: 'Use a Privacy-Focused Browser',
+          description: 'Browsers like Firefox, Brave, or Tor Browser minimize tracking. Avoid Chrome if privacy is your priority.',
         },
       ],
     },
-  },
+},
 ];
 
 const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
