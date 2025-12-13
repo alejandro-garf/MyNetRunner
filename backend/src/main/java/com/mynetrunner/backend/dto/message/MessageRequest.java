@@ -1,55 +1,73 @@
 package com.mynetrunner.backend.dto.message;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 public class MessageRequest {
-    
-    @NotNull(message = "Sender ID is required")
-    @Positive(message = "Sender ID must be a positive number")
-    private Long senderId;
-    
-    @NotNull(message = "Receiver ID is required")
-    @Positive(message = "Receiver ID must be a positive number")
-    private Long receiverId;
-    
-    @NotBlank(message = "Message content cannot be empty")
-    @Size(max = 5000, message = "Message cannot exceed 5000 characters")
+
+    private String senderUsername;
+    private String recipientUsername;
+
+    @Size(max = 10000, message = "Message must be less than 10000 characters")
     private String content;
-    
-    // Constructors
+
+    private String encryptedContent;
+    private String iv;
+    private Boolean isEncrypted = false;
+
+    // Key exchange fields (for first message in a session)
+    private String senderIdentityKey;
+    private String senderEphemeralKey;
+    private Integer usedOneTimePreKeyId;
+
+    // Custom TTL in minutes (default 5)
+    private Integer ttlMinutes = 5;
+
     public MessageRequest() {}
-    
-    public MessageRequest(Long senderId, Long receiverId, String content) {
-        this.senderId = senderId;
-        this.receiverId = receiverId;
-        this.content = content;
-    }
-    
+
     // Getters and Setters
-    public Long getSenderId() {
-        return senderId;
+    public String getSenderUsername() { return senderUsername; }
+    public void setSenderUsername(String senderUsername) { this.senderUsername = senderUsername; }
+
+    public String getRecipientUsername() { return recipientUsername; }
+    public void setRecipientUsername(String recipientUsername) { this.recipientUsername = recipientUsername; }
+
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+
+    public String getEncryptedContent() { return encryptedContent; }
+    public void setEncryptedContent(String encryptedContent) { this.encryptedContent = encryptedContent; }
+
+    public String getIv() { return iv; }
+    public void setIv(String iv) { this.iv = iv; }
+
+    public Boolean getIsEncrypted() { return isEncrypted; }
+    public void setIsEncrypted(Boolean isEncrypted) { this.isEncrypted = isEncrypted; }
+
+    public String getSenderIdentityKey() { return senderIdentityKey; }
+    public void setSenderIdentityKey(String senderIdentityKey) { this.senderIdentityKey = senderIdentityKey; }
+
+    public String getSenderEphemeralKey() { return senderEphemeralKey; }
+    public void setSenderEphemeralKey(String senderEphemeralKey) { this.senderEphemeralKey = senderEphemeralKey; }
+
+    public Integer getUsedOneTimePreKeyId() { return usedOneTimePreKeyId; }
+    public void setUsedOneTimePreKeyId(Integer usedOneTimePreKeyId) { this.usedOneTimePreKeyId = usedOneTimePreKeyId; }
+
+    public Integer getTtlMinutes() { return ttlMinutes; }
+    public void setTtlMinutes(Integer ttlMinutes) { 
+        // Clamp between 1 and 1440 (1 day max)
+        if (ttlMinutes == null || ttlMinutes < 1) {
+            this.ttlMinutes = 5;
+        } else if (ttlMinutes > 1440) {
+            this.ttlMinutes = 1440;
+        } else {
+            this.ttlMinutes = ttlMinutes;
+        }
     }
-    
-    public void setSenderId(Long senderId) {
-        this.senderId = senderId;
-    }
-    
-    public Long getReceiverId() {
-        return receiverId;
-    }
-    
-    public void setReceiverId(Long receiverId) {
-        this.receiverId = receiverId;
-    }
-    
-    public String getContent() {
+
+    public String getEffectiveContent() {
+        if (Boolean.TRUE.equals(isEncrypted) && encryptedContent != null) {
+            return encryptedContent;
+        }
         return content;
-    }
-    
-    public void setContent(String content) {
-        this.content = content;
     }
 }

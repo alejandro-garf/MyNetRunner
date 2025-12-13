@@ -11,6 +11,7 @@ export interface RegisterCredentials extends AuthCredentials {
 export interface AuthResponse {
   token: string;
   username: string;
+  userId: number;
   message?: string;
 }
 
@@ -28,6 +29,9 @@ export interface Message {
   content: string;
   timestamp: string;
   delivered: boolean;
+  isEncrypted?: boolean;
+  groupId?: number;
+  groupName?: string;
 }
 
 export interface Contact {
@@ -36,6 +40,21 @@ export interface Contact {
   lastMessage?: string;
   time?: string;
   unread?: number;
+}
+
+// Group types
+export interface Group {
+  id: number;
+  name: string;
+  createdBy: number;
+  memberCount: number;
+  myRole: 'OWNER' | 'ADMIN' | 'MEMBER';
+}
+
+export interface GroupMember {
+  id: number;
+  username: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
 }
 
 // API error response
