@@ -1,13 +1,10 @@
 import SockJS from 'sockjs-client';
 import { Client, IMessage } from '@stomp/stompjs';
 import type { Message } from '../types';
-import { getToken, authAPI } from './api';
+import { getToken, authAPI, api } from './api';
 import { sessionManager } from '../crypto/SessionManager';
 import { encryptMessage, decryptMessage } from '../crypto/MessageCrypto';
 import { keyStorage } from '../crypto/KeyStorage';
-
-// Import axios instance for fetching pending messages
-import { api } from './api';
 
 export class ChatWebSocket {
   private stompClient: Client | null = null;
@@ -167,11 +164,10 @@ export class ChatWebSocket {
     if (receivedMessage.encryptedContent && receivedMessage.iv) {
       try {
         const senderId = receivedMessage.senderId;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let sharedSecret: any = null;
 
         // If message has key exchange data, ALWAYS create a new responder session
-        // (the sender may have created a new session with new ephemeral keys)
+        // This ensures we use the sender's current ephemeral key
         if (receivedMessage.senderIdentityKey && receivedMessage.senderEphemeralKey) {
           console.log('Creating responder session for incoming message from:', receivedMessage.senderUsername);
           const session = await sessionManager.createResponderSession(
@@ -183,8 +179,8 @@ export class ChatWebSocket {
           );
           sharedSecret = session.sharedSecret;
         } else {
-          // No key exchange data - try to use existing session
-          console.log('No key exchange data, using existing session for:', senderId);
+          // No key exchange data - try to use existing session (shouldn't happen with new logic)
+          console.log('No key exchange data, trying existing session for:', senderId);
           sharedSecret = await sessionManager.getSharedSecret(senderId);
         }
 
@@ -246,22 +242,18 @@ export class ChatWebSocket {
     }
 
     try {
-      let session = await sessionManager.getSession(recipientId);
-      let senderIdentityKey: string | null = null;
-      let senderEphemeralKey: string | null = null;
-      let usedOneTimePreKeyId: number | null = null;
+      // ALWAYS create a fresh session for EVERY message
+      // This fetches the recipient's CURRENT keys from the server
+      // and ensures key exchange data is always included
+      console.log('Creating fresh initiator session for message to:', recipientUsername);
+      const initiatorSession = await sessionManager.createInitiatorSession(recipientId);
 
-      if (!session) {
-        const initiatorSession = await sessionManager.createInitiatorSession(recipientId);
-        session = initiatorSession;
+      const identityKeyPair = await keyStorage.getIdentityKeyPair();
+      const senderIdentityKey = identityKeyPair?.publicKey || null;
+      const senderEphemeralKey = initiatorSession.ephemeralPublicKey;
+      const usedOneTimePreKeyId = initiatorSession.usedOneTimePreKeyId;
 
-        const identityKeyPair = await keyStorage.getIdentityKeyPair();
-        senderIdentityKey = identityKeyPair?.publicKey || null;
-        senderEphemeralKey = initiatorSession.ephemeralPublicKey;
-        usedOneTimePreKeyId = initiatorSession.usedOneTimePreKeyId;
-      }
-
-      const encrypted = await encryptMessage(content, session.sharedSecret);
+      const encrypted = await encryptMessage(content, initiatorSession.sharedSecret);
 
       const messageRequest: any = {
         senderUsername: senderUsername,
@@ -271,13 +263,11 @@ export class ChatWebSocket {
         iv: encrypted.iv,
         isEncrypted: true,
         ttlMinutes: ttlMinutes,
+        // ALWAYS include key exchange data
+        senderIdentityKey: senderIdentityKey,
+        senderEphemeralKey: senderEphemeralKey,
+        usedOneTimePreKeyId: usedOneTimePreKeyId,
       };
-
-      if (senderIdentityKey && senderEphemeralKey) {
-        messageRequest.senderIdentityKey = senderIdentityKey;
-        messageRequest.senderEphemeralKey = senderEphemeralKey;
-        messageRequest.usedOneTimePreKeyId = usedOneTimePreKeyId;
-      }
 
       this.stompClient.publish({
         destination: '/app/send',
@@ -286,6 +276,7 @@ export class ChatWebSocket {
     } catch (error) {
       console.error('Failed to send encrypted message:', error);
 
+      // Fallback to unencrypted (for debugging only)
       const messageRequest = {
         senderUsername: senderUsername,
         recipientUsername: recipientUsername,
