@@ -6,6 +6,9 @@ import { sessionManager } from '../crypto/SessionManager';
 import { encryptMessage, decryptMessage } from '../crypto/MessageCrypto';
 import { keyStorage } from '../crypto/KeyStorage';
 
+// Import axios instance for fetching pending messages
+import { api } from './api';
+
 export class ChatWebSocket {
   private stompClient: Client | null = null;
   private url: string;
@@ -57,53 +60,15 @@ export class ChatWebSocket {
         console.log('STOMP WebSocket connected');
         this.connected = true;
 
+        // Fetch pending messages on connect
+        this.fetchPendingMessages();
+
         if (this.stompClient) {
           // Subscribe to personal message queue
           this.stompClient.subscribe('/user/queue/messages', async (message: IMessage) => {
             try {
               const receivedMessage = JSON.parse(message.body);
-
-              // Check if message is encrypted
-              if (receivedMessage.encryptedContent && receivedMessage.iv) {
-                try {
-                  const senderId = receivedMessage.senderId;
-                  let sharedSecret = await sessionManager.getSharedSecret(senderId);
-
-                  // If no session exists and we have key exchange data, create responder session
-                  if (!sharedSecret && receivedMessage.senderIdentityKey && receivedMessage.senderEphemeralKey) {
-                    const session = await sessionManager.createResponderSession(
-                      senderId,
-                      receivedMessage.senderUsername,
-                      receivedMessage.senderIdentityKey,
-                      receivedMessage.senderEphemeralKey,
-                      receivedMessage.usedOneTimePreKeyId || null
-                    );
-                    sharedSecret = session.sharedSecret;
-                  }
-
-                  if (sharedSecret) {
-                    const decryptedContent = await decryptMessage(
-                      {
-                        ciphertext: receivedMessage.encryptedContent,
-                        iv: receivedMessage.iv,
-                      },
-                      sharedSecret
-                    );
-
-                    receivedMessage.content = decryptedContent;
-                    receivedMessage.isEncrypted = true;
-                  } else {
-                    receivedMessage.content = '[Unable to decrypt - no session]';
-                  }
-                } catch (decryptError) {
-                  console.error('Decryption failed:', decryptError);
-                  receivedMessage.content = '[Decryption failed]';
-                }
-              }
-
-              if (this.messageCallback) {
-                this.messageCallback(receivedMessage);
-              }
+              await this.processIncomingMessage(receivedMessage);
             } catch (error) {
               console.error('Failed to parse message:', error);
               if (this.errorCallback) {
@@ -174,6 +139,70 @@ export class ChatWebSocket {
       if (this.errorCallback) {
         this.errorCallback('Failed to connect');
       }
+    }
+  }
+
+  private async fetchPendingMessages(): Promise<void> {
+    try {
+      const response = await api.get('/api/messages/pending');
+      const messages = response.data.messages || [];
+      
+      console.log(`Fetched ${messages.length} pending messages`);
+      
+      for (const msg of messages) {
+        await this.processIncomingMessage(msg);
+      }
+    } catch (error) {
+      console.error('Failed to fetch pending messages:', error);
+    }
+  }
+
+  private async processIncomingMessage(receivedMessage: any): Promise<void> {
+    // Generate timestamp if not present
+    if (!receivedMessage.timestamp) {
+      receivedMessage.timestamp = new Date().toISOString();
+    }
+
+    // Check if message is encrypted
+    if (receivedMessage.encryptedContent && receivedMessage.iv) {
+      try {
+        const senderId = receivedMessage.senderId;
+        let sharedSecret = await sessionManager.getSharedSecret(senderId);
+
+        // If no session exists and we have key exchange data, create responder session
+        if (!sharedSecret && receivedMessage.senderIdentityKey && receivedMessage.senderEphemeralKey) {
+          const session = await sessionManager.createResponderSession(
+            senderId,
+            receivedMessage.senderUsername,
+            receivedMessage.senderIdentityKey,
+            receivedMessage.senderEphemeralKey,
+            receivedMessage.usedOneTimePreKeyId || null
+          );
+          sharedSecret = session.sharedSecret;
+        }
+
+        if (sharedSecret) {
+          const decryptedContent = await decryptMessage(
+            {
+              ciphertext: receivedMessage.encryptedContent,
+              iv: receivedMessage.iv,
+            },
+            sharedSecret
+          );
+
+          receivedMessage.content = decryptedContent;
+          receivedMessage.isEncrypted = true;
+        } else {
+          receivedMessage.content = '[Unable to decrypt - no session]';
+        }
+      } catch (decryptError) {
+        console.error('Decryption failed:', decryptError);
+        receivedMessage.content = '[Decryption failed]';
+      }
+    }
+
+    if (this.messageCallback) {
+      this.messageCallback(receivedMessage);
     }
   }
 
@@ -275,8 +304,6 @@ export class ChatWebSocket {
       return;
     }
 
-    // For group messages, we send unencrypted for now
-    // Full group E2E would require sender keys (complex)
     const messageRequest = {
       senderUsername: senderUsername,
       groupId: groupId,

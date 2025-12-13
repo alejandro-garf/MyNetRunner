@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.stereotype.Controller;
 
 import com.mynetrunner.backend.dto.message.GroupMessageRequest;
@@ -33,6 +34,9 @@ public class WebSocketMessageController {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private SimpUserRegistry userRegistry;
 
     @Autowired
     private MessageService messageService;
@@ -175,7 +179,19 @@ public class WebSocketMessageController {
                 }
             }
 
-            // Send to all group members (except sender)
+            int ttlMinutes = request.getTtlMinutes() != null ? request.getTtlMinutes() : 5;
+
+            // Store messages for all members (for offline delivery)
+            messageService.sendGroupMessage(
+                    sender.getId(),
+                    request.getGroupId(),
+                    memberIds,
+                    contentToStore,
+                    iv,
+                    isEncrypted,
+                    ttlMinutes);
+
+            // Send to online members immediately
             for (Long memberId : memberIds) {
                 if (memberId.equals(sender.getId())) {
                     continue; // Don't send to self
@@ -184,32 +200,38 @@ public class WebSocketMessageController {
                 User member = userRepository.findById(memberId).orElse(null);
                 if (member == null) continue;
 
-                MessageResponse response = new MessageResponse();
-                response.setId(System.currentTimeMillis());
-                response.setSenderId(sender.getId());
-                response.setSenderUsername(sender.getUsername());
-                response.setReceiverId(memberId);
-                response.setDelivered(true);
-                response.setIsEncrypted(isEncrypted);
-                response.setGroupId(request.getGroupId());
-                response.setGroupName(group.getName());
+                // Check if user is online
+                boolean isOnline = userRegistry.getUser(member.getUsername()) != null;
 
-                if (isEncrypted) {
-                    response.setEncryptedContent(contentToStore);
-                    response.setIv(iv);
-                    response.setSenderIdentityKey(request.getSenderIdentityKey());
-                    response.setSenderEphemeralKey(request.getSenderEphemeralKey());
-                    response.setUsedOneTimePreKeyId(request.getUsedOneTimePreKeyId());
-                    response.setTimestamp(null);
-                } else {
-                    response.setContent(contentToStore);
-                    response.setTimestamp(java.time.LocalDateTime.now());
+                if (isOnline) {
+                    MessageResponse response = new MessageResponse();
+                    response.setId(System.currentTimeMillis());
+                    response.setSenderId(sender.getId());
+                    response.setSenderUsername(sender.getUsername());
+                    response.setReceiverId(memberId);
+                    response.setDelivered(true);
+                    response.setIsEncrypted(isEncrypted);
+                    response.setGroupId(request.getGroupId());
+                    response.setGroupName(group.getName());
+
+                    if (isEncrypted) {
+                        response.setEncryptedContent(contentToStore);
+                        response.setIv(iv);
+                        response.setSenderIdentityKey(request.getSenderIdentityKey());
+                        response.setSenderEphemeralKey(request.getSenderEphemeralKey());
+                        response.setUsedOneTimePreKeyId(request.getUsedOneTimePreKeyId());
+                        response.setTimestamp(null);
+                    } else {
+                        response.setContent(contentToStore);
+                        response.setTimestamp(java.time.LocalDateTime.now());
+                    }
+
+                    messagingTemplate.convertAndSendToUser(
+                            member.getUsername(),
+                            "/queue/messages",
+                            response);
                 }
-
-                messagingTemplate.convertAndSendToUser(
-                        member.getUsername(),
-                        "/queue/messages",
-                        response);
+                // If offline, message stays in DB until they come online
             }
 
         } catch (Exception e) {

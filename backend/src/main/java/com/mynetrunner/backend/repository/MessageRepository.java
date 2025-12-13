@@ -14,6 +14,13 @@ import com.mynetrunner.backend.model.Message;
 @Repository
 public interface MessageRepository extends JpaRepository<Message, Long> {
 
+    // Direct messages - pending for a specific receiver
+    List<Message> findByReceiverIdAndDeliveredFalseAndGroupIdIsNull(Long receiverId);
+
+    // Group messages - pending for a specific receiver in a specific group
+    List<Message> findByReceiverIdAndGroupIdAndDeliveredFalse(Long receiverId, Long groupId);
+
+    // All pending messages for a receiver (direct + group)
     List<Message> findByReceiverIdAndDeliveredFalse(Long receiverId);
 
     @Modifying
@@ -27,4 +34,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @Modifying
     @Query("DELETE FROM Message m WHERE m.receiverId = :userId")
     void deleteByReceiverId(@Param("userId") Long userId);
+
+    @Modifying
+    @Query("DELETE FROM Message m WHERE m.groupId = :groupId")
+    void deleteByGroupId(@Param("groupId") Long groupId);
 }

@@ -187,6 +187,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
       setAddMemberUsername('');
       setGroupActionMessage('Member added!');
       loadGroupMembers(selectedGroup.id);
+      loadGroups(); // Refresh sidebar count
       setTimeout(() => setGroupActionMessage(''), 3000);
     } catch (e: any) {
       setGroupActionMessage(e.response?.data?.error || 'Failed to add member');

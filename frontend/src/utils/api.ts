@@ -1,6 +1,7 @@
 import axios, { AxiosError } from 'axios';
 import type { AuthCredentials, RegisterCredentials, AuthResponse } from '../types';
 import { keyStorage } from '../crypto/KeyStorage';
+import type { Message } from '../types';
 
 // Create axios instance with no-cache headers for privacy
 const api = axios.create({
@@ -12,6 +13,9 @@ const api = axios.create({
     'Expires': '0',
   },
 });
+
+// Named export for use in websocket.ts
+export { api };
 
 // Add token to requests if available
 api.interceptors.request.use((config) => {
@@ -313,6 +317,15 @@ export const groupsAPI = {
   // Delete group
   delete: async (groupId: number): Promise<{ message: string }> => {
     const response = await api.delete(`/api/groups/${groupId}`);
+    return response.data;
+  },
+};
+
+// Messages API
+export const messagesAPI = {
+  // Get pending messages (for offline delivery)
+  getPending: async (): Promise<{ messages: Message[] }> => {
+    const response = await api.get('/api/messages/pending');
     return response.data;
   },
 };
