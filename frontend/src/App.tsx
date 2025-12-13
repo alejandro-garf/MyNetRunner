@@ -6,10 +6,15 @@ import ChatPage from './components/ChatPage';
 import { getToken } from './utils/api';
 import type { PageType } from './types';
 
+/**
+ * Main App component
+ * Handles routing between different pages with browser history support
+ */
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<PageType>('home');
   const [showSecurityModal, setShowSecurityModal] = useState(false);
 
+  // Get page from URL hash
   const getPageFromHash = (): PageType => {
     const hash = window.location.hash.slice(1);
     if (['home', 'signin', 'signup', 'chat'].includes(hash)) {
@@ -18,6 +23,7 @@ const App: React.FC = () => {
     return 'home';
   };
 
+  // Navigate and update browser history
   const navigate = useCallback((page: PageType) => {
     setCurrentPage(page);
     window.location.hash = page;
@@ -56,9 +62,9 @@ const App: React.FC = () => {
 
   // Listen for back button using popstate
   useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
+    const handlePopState = (_event: PopStateEvent) => {
       const token = getToken();
-      
+
       // If logged in and on chat, show security modal instead of navigating away
       if (token && currentPage === 'chat') {
         // Prevent navigation - push chat back
@@ -69,7 +75,7 @@ const App: React.FC = () => {
 
       // Otherwise handle normally
       const page = getPageFromHash();
-      
+
       if (page === 'chat' && !token) {
         navigate('home');
         return;

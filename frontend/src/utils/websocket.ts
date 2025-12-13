@@ -121,8 +121,8 @@ export class ChatWebSocket {
         }
       };
 
-      this.stompClient.onWebSocketError = (event) => {
-        console.error('WebSocket error:', event);
+      this.stompClient.onWebSocketError = (_event) => {
+        console.error('WebSocket error');
         this.connected = false;
         if (this.errorCallback) {
           this.errorCallback('WebSocket connection error');
@@ -167,12 +167,13 @@ export class ChatWebSocket {
     if (receivedMessage.encryptedContent && receivedMessage.iv) {
       try {
         const senderId = receivedMessage.senderId;
-        let sharedSecret: CryptoKey | null = null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let sharedSecret: any = null;
 
         // If message has key exchange data, ALWAYS create a new responder session
         // (the sender may have created a new session with new ephemeral keys)
         if (receivedMessage.senderIdentityKey && receivedMessage.senderEphemeralKey) {
-          console.log('Creating responder session for incoming message');
+          console.log('Creating responder session for incoming message from:', receivedMessage.senderUsername);
           const session = await sessionManager.createResponderSession(
             senderId,
             receivedMessage.senderUsername,
@@ -183,6 +184,7 @@ export class ChatWebSocket {
           sharedSecret = session.sharedSecret;
         } else {
           // No key exchange data - try to use existing session
+          console.log('No key exchange data, using existing session for:', senderId);
           sharedSecret = await sessionManager.getSharedSecret(senderId);
         }
 
@@ -198,6 +200,7 @@ export class ChatWebSocket {
           receivedMessage.content = decryptedContent;
           receivedMessage.isEncrypted = true;
         } else {
+          console.log('No shared secret available for decryption');
           receivedMessage.content = '[Unable to decrypt - no session]';
         }
       } catch (decryptError) {
