@@ -30,23 +30,11 @@ public class MessageService {
     private GroupRepository groupRepository;
 
     /**
-     * Send a direct message with default TTL (5 minutes)
+     * Send a direct message with all options including crypto fields
      */
-    public Message sendMessage(Long senderId, Long receiverId, String content) {
-        return sendMessage(senderId, receiverId, content, null, false, 5);
-    }
-
-    /**
-     * Send a direct message with custom TTL
-     */
-    public Message sendMessage(Long senderId, Long receiverId, String content, String iv, boolean isEncrypted) {
-        return sendMessage(senderId, receiverId, content, iv, isEncrypted, 5);
-    }
-
-    /**
-     * Send a direct message with all options
-     */
-    public Message sendMessage(Long senderId, Long receiverId, String content, String iv, boolean isEncrypted, int ttlMinutes) {
+    public Message sendMessage(Long senderId, Long receiverId, String content, String iv, 
+                               boolean isEncrypted, int ttlMinutes,
+                               String senderIdentityKey, String senderEphemeralKey, Long usedOneTimePreKeyId) {
         userRepository.findById(senderId)
                 .orElseThrow(() -> new RuntimeException("Sender not found"));
         userRepository.findById(receiverId)
@@ -61,14 +49,28 @@ public class MessageService {
         message.setIsEncrypted(isEncrypted);
         message.setDelivered(false);
         message.setExpiresAt(LocalDateTime.now().plusMinutes(ttlMinutes));
+        
+        // Store crypto fields for offline delivery
+        message.setSenderIdentityKey(senderIdentityKey);
+        message.setSenderEphemeralKey(senderEphemeralKey);
+        message.setUsedOneTimePreKeyId(usedOneTimePreKeyId);
 
         return messageRepository.save(message);
     }
 
     /**
+     * Send a direct message (legacy - without crypto fields)
+     */
+    public Message sendMessage(Long senderId, Long receiverId, String content, String iv, boolean isEncrypted, int ttlMinutes) {
+        return sendMessage(senderId, receiverId, content, iv, isEncrypted, ttlMinutes, null, null, null);
+    }
+
+    /**
      * Send a group message (stores one copy per recipient)
      */
-    public void sendGroupMessage(Long senderId, Long groupId, List<Long> recipientIds, String content, String iv, boolean isEncrypted, int ttlMinutes) {
+    public void sendGroupMessage(Long senderId, Long groupId, List<Long> recipientIds, String content, 
+                                  String iv, boolean isEncrypted, int ttlMinutes,
+                                  String senderIdentityKey, String senderEphemeralKey, Long usedOneTimePreKeyId) {
         userRepository.findById(senderId)
                 .orElseThrow(() -> new RuntimeException("Sender not found"));
 
@@ -76,7 +78,7 @@ public class MessageService {
 
         for (Long receiverId : recipientIds) {
             if (receiverId.equals(senderId)) {
-                continue; // Don't store message for sender
+                continue;
             }
 
             Message message = new Message();
@@ -88,9 +90,22 @@ public class MessageService {
             message.setIsEncrypted(isEncrypted);
             message.setDelivered(false);
             message.setExpiresAt(expiresAt);
+            
+            // Store crypto fields
+            message.setSenderIdentityKey(senderIdentityKey);
+            message.setSenderEphemeralKey(senderEphemeralKey);
+            message.setUsedOneTimePreKeyId(usedOneTimePreKeyId);
 
             messageRepository.save(message);
         }
+    }
+
+    /**
+     * Send a group message (legacy - without crypto fields)
+     */
+    public void sendGroupMessage(Long senderId, Long groupId, List<Long> recipientIds, String content, 
+                                  String iv, boolean isEncrypted, int ttlMinutes) {
+        sendGroupMessage(senderId, groupId, recipientIds, content, iv, isEncrypted, ttlMinutes, null, null, null);
     }
 
     /**
@@ -166,29 +181,30 @@ public class MessageService {
     }
 
     private MessageResponse convertToResponse(Message message, String senderUsername, String groupName) {
-        MessageResponse response;
-        if (Boolean.TRUE.equals(message.getIsEncrypted())) {
-            response = new MessageResponse(
-                    message.getId(),
-                    message.getSenderId(),
-                    senderUsername,
-                    message.getReceiverId(),
-                    message.getContent(),
-                    message.getIv(),
-                    message.getTimestamp(),
-                    message.getDelivered());
-        } else {
-            response = new MessageResponse(
-                    message.getId(),
-                    message.getSenderId(),
-                    senderUsername,
-                    message.getReceiverId(),
-                    message.getContent(),
-                    message.getTimestamp(),
-                    message.getDelivered());
-        }
+        MessageResponse response = new MessageResponse();
+        response.setId(message.getId());
+        response.setSenderId(message.getSenderId());
+        response.setSenderUsername(senderUsername);
+        response.setReceiverId(message.getReceiverId());
+        response.setTimestamp(message.getTimestamp());
+        response.setDelivered(message.getDelivered());
+        response.setIsEncrypted(message.getIsEncrypted());
         response.setGroupId(message.getGroupId());
         response.setGroupName(groupName);
+
+        if (Boolean.TRUE.equals(message.getIsEncrypted())) {
+            response.setEncryptedContent(message.getContent());
+            response.setIv(message.getIv());
+            // Include crypto fields for decryption
+            response.setSenderIdentityKey(message.getSenderIdentityKey());
+            response.setSenderEphemeralKey(message.getSenderEphemeralKey());
+            if (message.getUsedOneTimePreKeyId() != null) {
+                response.setUsedOneTimePreKeyId(message.getUsedOneTimePreKeyId().intValue());
+            }
+        } else {
+            response.setContent(message.getContent());
+        }
+
         return response;
     }
 }

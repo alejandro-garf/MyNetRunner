@@ -93,13 +93,22 @@ public class WebSocketMessageController {
 
             int ttlMinutes = request.getTtlMinutes() != null ? request.getTtlMinutes() : 5;
 
+            // Convert Integer to Long for usedOneTimePreKeyId
+            Long usedPreKeyId = request.getUsedOneTimePreKeyId() != null 
+                    ? request.getUsedOneTimePreKeyId().longValue() 
+                    : null;
+
+            // Save message WITH crypto fields for offline delivery
             Message message = messageService.sendMessage(
                     sender.getId(),
                     receiver.getId(),
                     contentToStore,
                     iv,
                     isEncrypted,
-                    ttlMinutes);
+                    ttlMinutes,
+                    request.getSenderIdentityKey(),
+                    request.getSenderEphemeralKey(),
+                    usedPreKeyId);
 
             MessageResponse response = new MessageResponse();
             response.setId(message.getId());
@@ -126,14 +135,14 @@ public class WebSocketMessageController {
 
             if (isOnline) {
                 messagingTemplate.convertAndSendToUser(
-                receiver.getUsername(),
-            "/queue/messages",
-            response);
-    
-    // Only delete if they're online to receive it
-    messageService.markAsDelivered(message.getId());
-}
-// If offline, message stays in DB until TTL expires or they come online;
+                        receiver.getUsername(),
+                        "/queue/messages",
+                        response);
+
+                // Only delete if they're online to receive it
+                messageService.markAsDelivered(message.getId());
+            }
+            // If offline, message stays in DB until TTL expires or they come online
 
         } catch (UserNotFoundException e) {
             throw e;
@@ -188,7 +197,12 @@ public class WebSocketMessageController {
 
             int ttlMinutes = request.getTtlMinutes() != null ? request.getTtlMinutes() : 5;
 
-            // Store messages for all members (for offline delivery)
+            // Convert Integer to Long for usedOneTimePreKeyId
+            Long usedPreKeyId = request.getUsedOneTimePreKeyId() != null 
+                    ? request.getUsedOneTimePreKeyId().longValue() 
+                    : null;
+
+            // Store messages for all members (for offline delivery) WITH crypto fields
             messageService.sendGroupMessage(
                     sender.getId(),
                     request.getGroupId(),
@@ -196,7 +210,10 @@ public class WebSocketMessageController {
                     contentToStore,
                     iv,
                     isEncrypted,
-                    ttlMinutes);
+                    ttlMinutes,
+                    request.getSenderIdentityKey(),
+                    request.getSenderEphemeralKey(),
+                    usedPreKeyId);
 
             // Send to online members immediately
             for (Long memberId : memberIds) {
