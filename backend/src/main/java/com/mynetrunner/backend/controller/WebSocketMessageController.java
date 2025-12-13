@@ -121,12 +121,19 @@ public class WebSocketMessageController {
                 response.setTimestamp(message.getTimestamp());
             }
 
-            messagingTemplate.convertAndSendToUser(
-                    receiver.getUsername(),
-                    "/queue/messages",
-                    response);
+            // Check if recipient is online
+            boolean isOnline = userRegistry.getUser(receiver.getUsername()) != null;
 
-            messageService.markAsDelivered(message.getId());
+            if (isOnline) {
+                messagingTemplate.convertAndSendToUser(
+                receiver.getUsername(),
+            "/queue/messages",
+            response);
+    
+    // Only delete if they're online to receive it
+    messageService.markAsDelivered(message.getId());
+}
+// If offline, message stays in DB until TTL expires or they come online;
 
         } catch (UserNotFoundException e) {
             throw e;
