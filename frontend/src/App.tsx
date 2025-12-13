@@ -6,15 +6,10 @@ import ChatPage from './components/ChatPage';
 import { getToken } from './utils/api';
 import type { PageType } from './types';
 
-/**
- * Main App component
- * Handles routing between different pages with browser history support
- */
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<PageType>('home');
   const [showSecurityModal, setShowSecurityModal] = useState(false);
 
-  // Get page from URL hash
   const getPageFromHash = (): PageType => {
     const hash = window.location.hash.slice(1);
     if (['home', 'signin', 'signup', 'chat'].includes(hash)) {
@@ -23,7 +18,6 @@ const App: React.FC = () => {
     return 'home';
   };
 
-  // Navigate and update browser history
   const navigate = useCallback((page: PageType) => {
     setCurrentPage(page);
     window.location.hash = page;
@@ -52,22 +46,54 @@ const App: React.FC = () => {
     }
   }, [navigate]);
 
-  // Listen for browser back/forward buttons
+  // Push extra history entry when on chat page to catch back button
+  useEffect(() => {
+    if (currentPage === 'chat' && getToken()) {
+      // Push a duplicate entry so back button has somewhere to go
+      window.history.pushState({ page: 'chat' }, '', '#chat');
+    }
+  }, [currentPage]);
+
+  // Listen for back button using popstate
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const token = getToken();
+      
+      // If logged in and on chat, show security modal instead of navigating away
+      if (token && currentPage === 'chat') {
+        // Prevent navigation - push chat back
+        window.history.pushState({ page: 'chat' }, '', '#chat');
+        setShowSecurityModal(true);
+        return;
+      }
+
+      // Otherwise handle normally
+      const page = getPageFromHash();
+      
+      if (page === 'chat' && !token) {
+        navigate('home');
+        return;
+      }
+
+      setCurrentPage(page);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentPage, navigate]);
+
+  // Also listen for hash changes (for manual navigation)
   useEffect(() => {
     const handleHashChange = () => {
       const page = getPageFromHash();
       const token = getToken();
 
-      // If logged in and trying to go back to auth pages, show security modal instead
-      if (token && (page === 'home' || page === 'signin' || page === 'signup')) {
-        // Push back to chat
-        window.history.pushState(null, '', '#chat');
-        setCurrentPage('chat');
+      if (token && currentPage === 'chat' && (page === 'home' || page === 'signin' || page === 'signup')) {
+        window.history.pushState({ page: 'chat' }, '', '#chat');
         setShowSecurityModal(true);
         return;
       }
 
-      // Protect chat route
       if (page === 'chat' && !token) {
         navigate('home');
         return;
@@ -78,9 +104,8 @@ const App: React.FC = () => {
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [navigate]);
+  }, [currentPage, navigate]);
 
-  // Render current page based on state
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
@@ -91,8 +116,8 @@ const App: React.FC = () => {
         return <SignUpPage onNavigate={navigate} />;
       case 'chat':
         return (
-          <ChatPage 
-            onNavigate={navigate} 
+          <ChatPage
+            onNavigate={navigate}
             triggerSecurityModal={showSecurityModal}
             onSecurityModalShown={() => setShowSecurityModal(false)}
           />
