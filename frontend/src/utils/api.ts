@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { AuthCredentials, RegisterCredentials, AuthResponse } from '../types';
-import { keyStorage } from '../crypto/KeyStorage';
+import { keyStorage as _keyStorage } from '../crypto/KeyStorage';
 import type { Message } from '../types';
 
 // Create axios instance with no-cache headers for privacy
