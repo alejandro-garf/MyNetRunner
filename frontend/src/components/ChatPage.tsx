@@ -43,7 +43,8 @@ const TTL_OPTIONS = [
 ];
 
 const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, onSecurityModalShown }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Store messages per conversation instead of a single array
+  const [messagesByConversation, setMessagesByConversation] = useState<Record<string, Message[]>>({});
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string } | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -135,7 +136,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messagesByConversation, selectedConversation]);
 
   // WebSocket connection
   useEffect(() => {
@@ -149,36 +150,36 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
         message.timestamp = new Date().toISOString();
       }
 
-      // Update conversation last message
+      // Determine which conversation this message belongs to
+      let convId: string | null = null;
+      if (message.groupId) {
+        convId = `group-${message.groupId}`;
+      } else {
+        // For direct messages, use the OTHER person's ID
+        const otherId = message.senderId === currentUser.id ? message.receiverId : message.senderId;
+        convId = `direct-${otherId}`;
+      }
+
+      // Update conversation preview
       setConversations(prev => prev.map(conv => {
-        if (conv.type === 'direct' && (conv.recipientId === message.senderId || conv.recipientId === message.receiverId)) {
+        if (conv.id === convId) {
           return {
             ...conv,
-            lastMessage: message.content.substring(0, 50),
+            lastMessage: message.groupId 
+              ? `${message.senderUsername}: ${message.content.substring(0, 40)}`
+              : message.content.substring(0, 50),
             lastMessageTime: message.timestamp,
-            unreadCount: selectedConversation?.id === conv.id ? 0 : conv.unreadCount + 1,
-          };
-        }
-        if (conv.type === 'group' && conv.groupId === message.groupId) {
-          return {
-            ...conv,
-            lastMessage: `${message.senderUsername}: ${message.content.substring(0, 40)}`,
-            lastMessageTime: message.timestamp,
-            unreadCount: selectedConversation?.id === conv.id ? 0 : conv.unreadCount + 1,
           };
         }
         return conv;
       }));
 
-      // Add to messages if in the right conversation
-      if (selectedConversation) {
-        const isDirectMatch = selectedConversation.type === 'direct' &&
-          (message.senderId === selectedConversation.recipientId || message.receiverId === selectedConversation.recipientId);
-        const isGroupMatch = selectedConversation.type === 'group' && message.groupId === selectedConversation.groupId;
-
-        if (isDirectMatch || isGroupMatch) {
-          setMessages(prev => [...prev, message]);
-        }
+      // Add message to the correct conversation's messages
+      if (convId) {
+        setMessagesByConversation(prev => ({
+          ...prev,
+          [convId]: [...(prev[convId] || []), message],
+        }));
       }
     };
 
@@ -200,7 +201,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       disconnectChatWebSocket();
       setIsConnected(false);
     };
-  }, [currentUser, selectedConversation]);
+  }, [currentUser]);
 
   // Key replenishment
   useEffect(() => {
@@ -249,7 +250,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
   // Action handlers
   const handleSelectConversation = async (conv: Conversation) => {
     setSelectedConversation(conv);
-    setMessages([]);
+    // Don't clear messages - they're stored per conversation now
 
     // Clear unread count
     setConversations(prev => prev.map(c =>
@@ -276,6 +277,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       return;
     }
 
+    const convId = selectedConversation.id;
+
     if (selectedConversation.type === 'group' && selectedConversation.groupId) {
       await chatWs.sendGroupMessage(
         currentUser.username,
@@ -295,7 +298,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
         isEncrypted: false,
         groupId: selectedConversation.groupId,
       };
-      setMessages(prev => [...prev, localMessage]);
+      
+      setMessagesByConversation(prev => ({
+        ...prev,
+        [convId]: [...(prev[convId] || []), localMessage],
+      }));
     } else if (selectedConversation.type === 'direct' && selectedConversation.recipientId) {
       await chatWs.sendChatMessage(
         currentUser.username,
@@ -315,7 +322,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
         delivered: true,
         isEncrypted: true,
       };
-      setMessages(prev => [...prev, localMessage]);
+      
+      setMessagesByConversation(prev => ({
+        ...prev,
+        [convId]: [...(prev[convId] || []), localMessage],
+      }));
     }
 
     setNewMessage('');
@@ -466,6 +477,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
   }
 
   if (!currentUser) return null;
+
+  // Get messages for the currently selected conversation
+  const currentMessages = selectedConversation ? (messagesByConversation[selectedConversation.id] || []) : [];
 
   return (
     <div className="h-screen bg-[#17212b] flex overflow-hidden">
@@ -853,7 +867,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
                 backgroundImage: 'url("data:image/svg+xml,%3Csvg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="none" fill-rule="evenodd"%3E%3Cg fill="%23232e3c" fill-opacity="0.4"%3E%3Cpath d="M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z"/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
               }}
             >
-              {messages.length === 0 ? (
+              {currentMessages.length === 0 ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center text-gray-500">
                     <Send className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -862,7 +876,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
                   </div>
                 </div>
               ) : (
-                messages.map((message, index) => {
+                currentMessages.map((message, index) => {
                   const isSentByMe = message.senderUsername === currentUser.username;
                   return (
                     <div
