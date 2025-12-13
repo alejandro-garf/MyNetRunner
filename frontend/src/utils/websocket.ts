@@ -209,25 +209,21 @@ export class ChatWebSocket {
     }
 
     try {
-      // Get or create session with recipient
       let session = await sessionManager.getSession(recipientId);
       let senderIdentityKey: string | null = null;
       let senderEphemeralKey: string | null = null;
       let usedOneTimePreKeyId: number | null = null;
 
       if (!session) {
-        // Create new initiator session
         const initiatorSession = await sessionManager.createInitiatorSession(recipientId);
         session = initiatorSession;
 
-        // Include key exchange data for first message
         const identityKeyPair = await keyStorage.getIdentityKeyPair();
         senderIdentityKey = identityKeyPair?.publicKey || null;
         senderEphemeralKey = initiatorSession.ephemeralPublicKey;
         usedOneTimePreKeyId = initiatorSession.usedOneTimePreKeyId;
       }
 
-      // Encrypt the message
       const encrypted = await encryptMessage(content, session.sharedSecret);
 
       const messageRequest: any = {
@@ -240,7 +236,6 @@ export class ChatWebSocket {
         ttlMinutes: ttlMinutes,
       };
 
-      // Include key exchange data if this is a new session
       if (senderIdentityKey && senderEphemeralKey) {
         messageRequest.senderIdentityKey = senderIdentityKey;
         messageRequest.senderEphemeralKey = senderEphemeralKey;
@@ -254,7 +249,6 @@ export class ChatWebSocket {
     } catch (error) {
       console.error('Failed to send encrypted message:', error);
 
-      // Fallback: send unencrypted if encryption fails
       const messageRequest = {
         senderUsername: senderUsername,
         recipientUsername: recipientUsername,
@@ -268,6 +262,33 @@ export class ChatWebSocket {
         body: JSON.stringify(messageRequest),
       });
     }
+  }
+
+  async sendGroupMessage(
+    senderUsername: string,
+    groupId: number,
+    content: string,
+    ttlMinutes: number = 5
+  ): Promise<void> {
+    if (!this.stompClient || !this.connected) {
+      console.warn('WebSocket is not connected, cannot send message');
+      return;
+    }
+
+    // For group messages, we send unencrypted for now
+    // Full group E2E would require sender keys (complex)
+    const messageRequest = {
+      senderUsername: senderUsername,
+      groupId: groupId,
+      content: content,
+      isEncrypted: false,
+      ttlMinutes: ttlMinutes,
+    };
+
+    this.stompClient.publish({
+      destination: '/app/send-group',
+      body: JSON.stringify(messageRequest),
+    });
   }
 
   disconnect(): void {

@@ -265,3 +265,54 @@ export const friendsAPI = {
     return response.data;
   },
 };
+
+// Groups API calls
+export const groupsAPI = {
+  // Create a new group
+  create: async (name: string): Promise<{ message: string; groupId: number; name: string }> => {
+    const response = await api.post('/api/groups', { name });
+    return response.data;
+  },
+
+  // Get my groups
+  getMyGroups: async (): Promise<{ groups: Array<{ id: number; name: string; createdBy: number; memberCount: number; myRole: 'OWNER' | 'ADMIN' | 'MEMBER' }> }> => {
+    const response = await api.get('/api/groups');
+    return response.data as { groups: Array<{ id: number; name: string; createdBy: number; memberCount: number; myRole: 'OWNER' | 'ADMIN' | 'MEMBER' }> };
+  },
+
+  // Get group details
+  getGroup: async (groupId: number): Promise<{ id: number; name: string; createdBy: number; members: Array<{ id: number; username: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' }> }> => {
+    const response = await api.get(`/api/groups/${groupId}`);
+    return response.data as { id: number; name: string; createdBy: number; members: Array<{ id: number; username: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' }> };
+  },
+
+  // Get group members
+  getMembers: async (groupId: number): Promise<{ members: Array<{ id: number; username: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' }> }> => {
+    const response = await api.get(`/api/groups/${groupId}/members`);
+    return response.data as { members: Array<{ id: number; username: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' }> };
+  },
+
+  // Add member to group
+  addMember: async (groupId: number, username: string): Promise<{ message: string }> => {
+    const response = await api.post(`/api/groups/${groupId}/members`, { username });
+    return response.data;
+  },
+
+  // Remove member from group
+  removeMember: async (groupId: number, memberId: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/api/groups/${groupId}/members/${memberId}`);
+    return response.data;
+  },
+
+  // Leave group
+  leave: async (groupId: number): Promise<{ message: string }> => {
+    const response = await api.post(`/api/groups/${groupId}/leave`);
+    return response.data;
+  },
+
+  // Delete group
+  delete: async (groupId: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/api/groups/${groupId}`);
+    return response.data;
+  },
+};

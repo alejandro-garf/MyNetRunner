@@ -30,6 +30,8 @@ export interface Message {
   timestamp: string;
   delivered: boolean;
   isEncrypted?: boolean;
+  groupId?: number;
+  groupName?: string;
 }
 
 export interface Contact {
@@ -38,6 +40,21 @@ export interface Contact {
   lastMessage?: string;
   time?: string;
   unread?: number;
+}
+
+// Group types
+export interface Group {
+  id: number;
+  name: string;
+  createdBy: number;
+  memberCount: number;
+  myRole: 'OWNER' | 'ADMIN' | 'MEMBER';
+}
+
+export interface GroupMember {
+  id: number;
+  username: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
 }
 
 // API error response
