@@ -14,6 +14,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onNavigate }) => {
     confirmPassword: '',
   });
   const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,8 +54,10 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onNavigate }) => {
       const response = await authAPI.register(formData);
       console.log('Registration successful:', response);
       
-      alert(`Identity created successfully! Welcome ${response.username}. Please authenticate to continue.`);
-      onNavigate('signin');
+      setSuccess(`Identity created! Welcome ${response.username}. Redirecting...`);
+      setTimeout(() => {
+        onNavigate('signin');
+      }, 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
@@ -115,6 +118,14 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onNavigate }) => {
           <h2 className="text-2xl font-bold text-white text-center mb-2">Create Identity</h2>
           <p className="text-gray-500 text-center mb-8">Generate your encrypted profile</p>
           
+          {/* Success message */}
+          {success && (
+            <div className="mb-6 p-4 bg-green-500/10 border border-green-500/30 text-green-400 rounded-xl text-sm flex items-center gap-2">
+              <Check className="w-4 h-4 flex-shrink-0" />
+              {success}
+            </div>
+          )}
+          
           {/* Error message */}
           {error && (
             <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-sm flex items-center gap-2">
@@ -141,7 +152,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onNavigate }) => {
                   onKeyPress={handleKeyPress}
                   placeholder="Choose a username"
                   className="w-full pl-12 pr-4 py-3 bg-[#0a0e14] border border-[#1e2a3a] rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors"
-                  disabled={isLoading}
+                  disabled={isLoading || !!success}
                 />
               </div>
               <p className="text-xs text-gray-600 mt-2">3-20 characters, alphanumeric and underscores</p>
@@ -163,7 +174,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onNavigate }) => {
                   onKeyPress={handleKeyPress}
                   placeholder="Create a password"
                   className="w-full pl-12 pr-4 py-3 bg-[#0a0e14] border border-[#1e2a3a] rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors"
-                  disabled={isLoading}
+                  disabled={isLoading || !!success}
                 />
               </div>
             </div>
@@ -184,7 +195,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onNavigate }) => {
                   onKeyPress={handleKeyPress}
                   placeholder="Confirm your password"
                   className="w-full pl-12 pr-4 py-3 bg-[#0a0e14] border border-[#1e2a3a] rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors"
-                  disabled={isLoading}
+                  disabled={isLoading || !!success}
                 />
               </div>
             </div>
@@ -206,13 +217,18 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onNavigate }) => {
             {/* Submit button */}
             <button
               onClick={handleSubmit}
-              disabled={isLoading}
+              disabled={isLoading || !!success}
               className="w-full py-3.5 bg-gradient-to-r from-cyan-600 to-purple-600 text-white rounded-xl font-semibold hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Generating Keys...
+                </>
+              ) : success ? (
+                <>
+                  <Check className="w-5 h-5" />
+                  Success!
                 </>
               ) : (
                 <>
