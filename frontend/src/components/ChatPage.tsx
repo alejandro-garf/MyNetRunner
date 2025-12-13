@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Send, LogOut, Search, Settings, Users, UserPlus, Check, X, Plus, Phone, Video, MoreHorizontal, Smile, Paperclip, Mic, Shield, Clock, Lock, AlertTriangle, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Send, LogOut, Search, Settings, Users, UserPlus, Check, X, Plus, Shield, Clock, Lock, AlertTriangle } from 'lucide-react';
 import { initializeChatWebSocket, disconnectChatWebSocket, getChatWebSocket } from '../utils/websocket';
 import { getUsername, getToken, getUserId, authAPI, userAPI, friendsAPI, groupsAPI } from '../utils/api';
 import { startPreKeyReplenishment } from '../crypto/KeyReplenishment';
@@ -7,6 +7,8 @@ import type { PageType, Message, Group, GroupMember } from '../types';
 
 interface ChatPageProps {
   onNavigate: (page: PageType) => void;
+  triggerSecurityModal?: boolean;
+  onSecurityModalShown?: () => void;
 }
 
 interface Friend {
@@ -30,7 +32,6 @@ interface Conversation {
   lastMessage?: string;
   lastMessageTime?: string;
   unreadCount: number;
-  avatar?: string;
 }
 
 const TTL_OPTIONS = [
@@ -41,7 +42,7 @@ const TTL_OPTIONS = [
   { value: 1440, label: '24 hours' },
 ];
 
-const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
+const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, onSecurityModalShown }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string } | null>(null);
@@ -95,6 +96,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
       setShowSecurityModal(true);
     }
   }, [onNavigate]);
+
+  // Handle triggered security modal from App (back button)
+  useEffect(() => {
+    if (triggerSecurityModal) {
+      setShowSecurityModal(true);
+      onSecurityModalShown?.();
+    }
+  }, [triggerSecurityModal, onSecurityModalShown]);
 
   // Build conversations from friends and groups
   useEffect(() => {
@@ -948,7 +957,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#0e1621]">
             <div className="text-center text-gray-500">
-              <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <MessageSquareIcon className="w-16 h-16 mx-auto mb-4 opacity-50" />
               <h2 className="text-xl font-medium text-gray-400">MyNetRunner</h2>
               <p className="mt-2">Select a chat to start messaging</p>
               <button
@@ -1017,8 +1026,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate }) => {
   );
 };
 
-// Add missing import
-const MessageSquare = ({ className }: { className?: string }) => (
+// MessageSquare icon component
+const MessageSquareIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
   </svg>
