@@ -167,10 +167,12 @@ export class ChatWebSocket {
     if (receivedMessage.encryptedContent && receivedMessage.iv) {
       try {
         const senderId = receivedMessage.senderId;
-        let sharedSecret = await sessionManager.getSharedSecret(senderId);
+        let sharedSecret: CryptoKey | null = null;
 
-        // If no session exists and we have key exchange data, create responder session
-        if (!sharedSecret && receivedMessage.senderIdentityKey && receivedMessage.senderEphemeralKey) {
+        // If message has key exchange data, ALWAYS create a new responder session
+        // (the sender may have created a new session with new ephemeral keys)
+        if (receivedMessage.senderIdentityKey && receivedMessage.senderEphemeralKey) {
+          console.log('Creating responder session for incoming message');
           const session = await sessionManager.createResponderSession(
             senderId,
             receivedMessage.senderUsername,
@@ -179,6 +181,9 @@ export class ChatWebSocket {
             receivedMessage.usedOneTimePreKeyId || null
           );
           sharedSecret = session.sharedSecret;
+        } else {
+          // No key exchange data - try to use existing session
+          sharedSecret = await sessionManager.getSharedSecret(senderId);
         }
 
         if (sharedSecret) {
