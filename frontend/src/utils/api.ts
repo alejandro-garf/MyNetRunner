@@ -171,11 +171,11 @@ export const authAPI = {
 
       // Clear encryption keys (privacy)
       try {
-        await keyStorage.clearAll();
-        console.log('Encryption keys cleared');
-      } catch (e) {
-        console.error('Failed to clear encryption keys:', e);
-      }
+      // await keyStorage.clearAll();
+      console.log('Encryption keys preserved for offline message decryption');
+    } catch (e) {
+      console.error('Failed to clear encryption keys:', e);
+    }
     }
   },
 };
