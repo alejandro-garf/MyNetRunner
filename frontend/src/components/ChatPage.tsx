@@ -182,7 +182,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       }
     };
 
-    const handleError = (error: string) => {
+    const handleError = (_error: string) => {
       setIsConnected(false);
     };
 

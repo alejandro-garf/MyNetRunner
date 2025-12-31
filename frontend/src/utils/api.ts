@@ -17,6 +17,12 @@ const api = axios.create({
 // Named export for use in websocket.ts
 export { api };
 
+// Legacy authentication check - tokens are now in httpOnly cookies
+// Returns username as truthy value if user is logged in
+export const getToken = (): string | null => {
+  return localStorage.getItem('username');
+};
+
 // User session management (non-sensitive data only)
 export const getUsername = (): string | null => {
   return localStorage.getItem('username');
