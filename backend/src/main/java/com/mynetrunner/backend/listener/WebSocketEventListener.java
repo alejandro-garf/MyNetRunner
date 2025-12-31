@@ -2,6 +2,8 @@ package com.mynetrunner.backend.listener;
 
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -14,6 +16,8 @@ import com.mynetrunner.backend.service.WebSocketSessionManager;
 
 @Component
 public class WebSocketEventListener {
+
+    private static final Logger logger = LoggerFactory.getLogger(WebSocketEventListener.class);
 
     @Autowired
     private WebSocketSessionManager sessionManager;
@@ -36,7 +40,7 @@ public class WebSocketEventListener {
             // Broadcast presence update
             broadcastPresenceUpdate(username, true);
 
-            System.out.println("WebSocket connected: " + username + " with session " + sessionId);
+            logger.info("WebSocket connected: {} with session {}", username, sessionId);
         }
     }
 
@@ -65,7 +69,7 @@ public class WebSocketEventListener {
             // Broadcast presence update
             broadcastPresenceUpdate(username, false);
 
-            System.out.println("WebSocket disconnected: " + username);
+            logger.info("WebSocket disconnected: {}", username);
         }
     }
 

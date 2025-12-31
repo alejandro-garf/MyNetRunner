@@ -1,5 +1,7 @@
 package com.mynetrunner.backend.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -17,6 +19,8 @@ import java.security.Principal;
 @Component
 public class UserInterceptor implements ChannelInterceptor {
 
+    private static final Logger logger = LoggerFactory.getLogger(UserInterceptor.class);
+
     @Autowired
     private JwtUtil jwtUtil;
 
@@ -30,9 +34,9 @@ public class UserInterceptor implements ChannelInterceptor {
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
             // Get token from header (client sends as "Authorization: Bearer <token>")
             String authHeader = accessor.getFirstNativeHeader("Authorization");
-            
+
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                System.err.println("WebSocket connection rejected: Missing or invalid Authorization header");
+                logger.error("WebSocket connection rejected: Missing or invalid Authorization header");
                 throw new IllegalArgumentException("Missing or invalid Authorization header");
             }
 
@@ -40,7 +44,7 @@ public class UserInterceptor implements ChannelInterceptor {
 
             // Check if token is blacklisted
             if (tokenBlacklistService.isBlacklisted(token)) {
-                System.err.println("WebSocket connection rejected: Token is blacklisted");
+                logger.error("WebSocket connection rejected: Token is blacklisted");
                 throw new IllegalArgumentException("Token has been revoked");
             }
 
@@ -50,7 +54,7 @@ public class UserInterceptor implements ChannelInterceptor {
 
                 // Validate token
                 if (!jwtUtil.validateToken(token, username)) {
-                    System.err.println("WebSocket connection rejected: Invalid token");
+                    logger.error("WebSocket connection rejected: Invalid token");
                     throw new IllegalArgumentException("Invalid or expired token");
                 }
 
@@ -66,12 +70,12 @@ public class UserInterceptor implements ChannelInterceptor {
                 // Store username in session attributes for disconnect handling
                 accessor.getSessionAttributes().put("username", username);
 
-                System.out.println("WebSocket authenticated for user: " + username);
+                logger.info("WebSocket authenticated for user: {}", username);
 
             } catch (IllegalArgumentException e) {
                 throw e;
             } catch (Exception e) {
-                System.err.println("WebSocket connection rejected: Token validation failed - " + e.getMessage());
+                logger.error("WebSocket connection rejected: Token validation failed - {}", e.getMessage());
                 throw new IllegalArgumentException("Token validation failed");
             }
         }

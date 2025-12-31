@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,8 @@ import com.mynetrunner.backend.repository.UserRepository;
 
 @Service
 public class MessageService {
+
+    private static final Logger logger = LoggerFactory.getLogger(MessageService.class);
 
     @Autowired
     private MessageRepository messageRepository;
@@ -159,7 +163,7 @@ public class MessageService {
     public void deleteExpiredMessages() {
         int deleted = messageRepository.deleteExpiredMessages(LocalDateTime.now());
         if (deleted > 0) {
-            System.out.println("Cleaned up " + deleted + " expired messages");
+            logger.info("Cleaned up {} expired messages", deleted);
         }
     }
 

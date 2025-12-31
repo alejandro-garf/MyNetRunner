@@ -30,7 +30,6 @@ export class ChatWebSocket {
     const token = getToken();
 
     if (!token) {
-      console.error('No auth token available');
       if (this.errorCallback) {
         this.errorCallback('Not authenticated');
       }
@@ -42,9 +41,7 @@ export class ChatWebSocket {
 
       this.stompClient = new Client({
         webSocketFactory: () => socket as any,
-        debug: (str) => {
-          console.log('STOMP Debug:', str);
-        },
+        debug: () => {},
         reconnectDelay: 5000,
         heartbeatIncoming: 4000,
         heartbeatOutgoing: 4000,
@@ -54,7 +51,6 @@ export class ChatWebSocket {
       });
 
       this.stompClient.onConnect = () => {
-        console.log('STOMP WebSocket connected');
         this.connected = true;
 
         // Fetch pending messages on connect
@@ -67,7 +63,6 @@ export class ChatWebSocket {
               const receivedMessage = JSON.parse(message.body);
               await this.processIncomingMessage(receivedMessage);
             } catch (error) {
-              console.error('Failed to parse message:', error);
               if (this.errorCallback) {
                 this.errorCallback('Failed to parse message');
               }
@@ -83,7 +78,7 @@ export class ChatWebSocket {
                 this.presenceCallback(presenceUpdate);
               }
             } catch (error) {
-              console.error('Failed to parse presence update:', error);
+              // Failed to parse presence update
             }
           });
 
@@ -91,19 +86,17 @@ export class ChatWebSocket {
           this.stompClient.subscribe('/user/queue/errors', (message: IMessage) => {
             try {
               const error = JSON.parse(message.body);
-              console.error('Server error:', error);
               if (this.errorCallback) {
                 this.errorCallback(error.error || 'Server error');
               }
             } catch (error) {
-              console.error('Failed to parse error:', error);
+              // Failed to parse error
             }
           });
         }
       };
 
       this.stompClient.onStompError = (frame) => {
-        console.error('STOMP error:', frame);
         this.connected = false;
 
         const errorMessage = frame.headers?.message || 'Connection error';
@@ -119,7 +112,6 @@ export class ChatWebSocket {
       };
 
       this.stompClient.onWebSocketError = (_event) => {
-        console.error('WebSocket error');
         this.connected = false;
         if (this.errorCallback) {
           this.errorCallback('WebSocket connection error');
@@ -132,7 +124,6 @@ export class ChatWebSocket {
 
       this.stompClient.activate();
     } catch (error) {
-      console.error('Failed to create WebSocket connection:', error);
       if (this.errorCallback) {
         this.errorCallback('Failed to connect');
       }
@@ -143,14 +134,12 @@ export class ChatWebSocket {
     try {
       const response = await api.get('/api/messages/pending');
       const messages = response.data.messages || [];
-      
-      console.log(`Fetched ${messages.length} pending messages`);
-      
+
       for (const msg of messages) {
         await this.processIncomingMessage(msg);
       }
     } catch (error) {
-      console.error('Failed to fetch pending messages:', error);
+      // Failed to fetch pending messages
     }
   }
 
@@ -169,7 +158,6 @@ export class ChatWebSocket {
         // If message has key exchange data, ALWAYS create a new responder session
         // This ensures we use the sender's current ephemeral key
         if (receivedMessage.senderIdentityKey && receivedMessage.senderEphemeralKey) {
-          console.log('Creating responder session for incoming message from:', receivedMessage.senderUsername);
           const session = await sessionManager.createResponderSession(
             senderId,
             receivedMessage.senderUsername,
@@ -180,7 +168,6 @@ export class ChatWebSocket {
           sharedSecret = session.sharedSecret;
         } else {
           // No key exchange data - try to use existing session (shouldn't happen with new logic)
-          console.log('No key exchange data, trying existing session for:', senderId);
           sharedSecret = await sessionManager.getSharedSecret(senderId);
         }
 
@@ -196,11 +183,9 @@ export class ChatWebSocket {
           receivedMessage.content = decryptedContent;
           receivedMessage.isEncrypted = true;
         } else {
-          console.log('No shared secret available for decryption');
           receivedMessage.content = '[Unable to decrypt - no session]';
         }
       } catch (decryptError) {
-        console.error('Decryption failed:', decryptError);
         receivedMessage.content = '[Decryption failed]';
       }
     }
@@ -237,7 +222,6 @@ export class ChatWebSocket {
     ttlMinutes: number = 5
   ): Promise<void> {
     if (!this.stompClient || !this.connected) {
-      console.warn('WebSocket is not connected, cannot send message');
       return;
     }
 
@@ -245,7 +229,6 @@ export class ChatWebSocket {
       // ALWAYS create a fresh session for EVERY message
       // This fetches the recipient's CURRENT keys from the server
       // and ensures key exchange data is always included
-      console.log('Creating fresh initiator session for message to:', recipientUsername);
       const initiatorSession = await sessionManager.createInitiatorSession(recipientId);
 
       const identityKeyPair = await keyStorage.getIdentityKeyPair();
@@ -274,8 +257,6 @@ export class ChatWebSocket {
         body: JSON.stringify(messageRequest),
       });
     } catch (error) {
-      console.error('Failed to send encrypted message:', error);
-
       // Fallback to unencrypted (for debugging only)
       const messageRequest = {
         senderUsername: senderUsername,
@@ -299,7 +280,6 @@ export class ChatWebSocket {
     ttlMinutes: number = 5
   ): Promise<void> {
     if (!this.stompClient || !this.connected) {
-      console.warn('WebSocket is not connected, cannot send message');
       return;
     }
 

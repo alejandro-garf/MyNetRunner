@@ -41,8 +41,6 @@ export async function uploadPreKeyBundle(bundle: {
   if (!response.ok) {
     throw new Error('Failed to upload prekey bundle');
   }
-
-  console.log('PreKey bundle uploaded successfully');
 }
 
 // Upload one-time prekeys to server
@@ -63,8 +61,6 @@ export async function uploadOneTimePreKeys(
   if (!response.ok) {
     throw new Error('Failed to upload one-time prekeys');
   }
-
-  console.log(`Uploaded ${preKeys.length} one-time prekeys`);
 }
 
 // Fetch another user's prekey bundle for session establishment

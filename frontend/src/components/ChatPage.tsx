@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, LogOut, Search, Settings, Users, UserPlus, Check, X, Plus, Shield, Clock, Lock, AlertTriangle } from 'lucide-react';
 import { initializeChatWebSocket, disconnectChatWebSocket, getChatWebSocket } from '../utils/websocket';
-import { getUsername, getToken, getUserId, authAPI, friendsAPI, groupsAPI } from '../utils/api';
+import { getUsername, getUserId, authAPI, friendsAPI, groupsAPI } from '../utils/api';
 import { startPreKeyReplenishment } from '../crypto/KeyReplenishment';
 import type { PageType, Message, Group, GroupMember } from '../types';
 
@@ -77,11 +77,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
 
   // Initialize
   useEffect(() => {
-    const token = getToken();
     const username = getUsername();
     const userId = getUserId();
 
-    if (!token || !username || !userId) {
+    if (!username || !userId) {
       onNavigate('home');
       return;
     }
@@ -184,7 +183,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
     };
 
     const handleError = (error: string) => {
-      console.error('WebSocket error:', error);
       setIsConnected(false);
     };
 
@@ -216,7 +214,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       const data = await friendsAPI.getFriends();
       setFriends(data.friends || []);
     } catch (e) {
-      console.error('Failed to load friends:', e);
+      // Failed to load friends
     }
   };
 
@@ -225,7 +223,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       const data = await friendsAPI.getPendingRequests();
       setPendingRequests(data.requests || []);
     } catch (e) {
-      console.error('Failed to load requests:', e);
+      // Failed to load requests
     }
   };
 
@@ -234,7 +232,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       const data = await groupsAPI.getMyGroups();
       setGroups(data.groups || []);
     } catch (e) {
-      console.error('Failed to load groups:', e);
+      // Failed to load groups
     }
   };
 
@@ -243,7 +241,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       const data = await groupsAPI.getMembers(groupId);
       setGroupMembers(data.members || []);
     } catch (e) {
-      console.error('Failed to load members:', e);
+      // Failed to load members
     }
   };
 
@@ -358,7 +356,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       loadFriends();
       loadPendingRequests();
     } catch (e) {
-      console.error('Failed:', e);
+      // Failed
     }
   };
 
@@ -367,7 +365,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ onNavigate, triggerSecurityModal, o
       await friendsAPI.rejectRequest(friendshipId);
       loadPendingRequests();
     } catch (e) {
-      console.error('Failed:', e);
+      // Failed
     }
   };
 

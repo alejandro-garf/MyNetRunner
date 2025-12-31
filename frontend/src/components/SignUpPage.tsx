@@ -52,8 +52,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onNavigate }) => {
 
     try {
       const response = await authAPI.register(formData);
-      console.log('Registration successful:', response);
-      
+
       setSuccess(`Identity created! Welcome ${response.username}. Redirecting...`);
       setTimeout(() => {
         onNavigate('signin');

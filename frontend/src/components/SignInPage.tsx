@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Terminal, Lock, User, ArrowRight, Shield } from 'lucide-react';
-import { authAPI, setToken, setUsername, setUserId } from '../utils/api';
-import { 
-  checkKeyStatus, 
-  uploadPreKeyBundle, 
-  uploadOneTimePreKeys 
+import { authAPI, setUsername, setUserId } from '../utils/api';
+import {
+  checkKeyStatus,
+  uploadPreKeyBundle,
+  uploadOneTimePreKeys
 } from '../crypto/KeyAPI';
 import { generateRegistrationBundle, hasGeneratedKeys } from '../crypto/KeyGenerator';
 import type { PageType } from '../types';
@@ -38,13 +38,10 @@ const SignInPage: React.FC<SignInPageProps> = ({ onNavigate }) => {
       
       if (serverStatus.hasKeys) {
         const hasLocalKeys = await hasGeneratedKeys();
-        
+
         if (hasLocalKeys) {
-          console.log('Encryption keys already set up');
           setStatus('');
           return;
-        } else {
-          console.log('Server has keys but local keys missing - regenerating');
         }
       }
 
@@ -61,10 +58,8 @@ const SignInPage: React.FC<SignInPageProps> = ({ onNavigate }) => {
 
       await uploadOneTimePreKeys(bundle.oneTimePreKeys);
 
-      console.log('Encryption keys set up successfully');
       setStatus('');
     } catch (err) {
-      console.error('Failed to set up encryption keys:', err);
       setStatus('');
     }
   };
@@ -85,12 +80,9 @@ const SignInPage: React.FC<SignInPageProps> = ({ onNavigate }) => {
 
     try {
       const response = await authAPI.login(formData);
-      
-      setToken(response.token);
+
       setUsername(response.username);
       setUserId(response.userId);
-      
-      console.log('Login successful:', response);
 
       await setupEncryptionKeys();
 

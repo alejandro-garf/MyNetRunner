@@ -68,7 +68,6 @@ async function signData(privateKeyBase64: string, data: ArrayBuffer): Promise<st
 export async function generateIdentityKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
   const keyPair = await generateKeyPair();
   await keyStorage.storeIdentityKeyPair(keyPair);
-  console.log('Identity key pair generated and stored');
   return keyPair;
 }
 
@@ -84,7 +83,6 @@ export async function generateSignedPreKey(
   const signature = await signData(identityPrivateKey, publicKeyBuffer);
 
   await keyStorage.storeSignedPreKey(keyId, keyPair, signature);
-  console.log(`Signed prekey ${keyId} generated and stored`);
 
   return {
     ...keyPair,
@@ -107,7 +105,6 @@ export async function generateOneTimePreKeys(
     preKeys.push({ publicKey: keyPair.publicKey, keyId });
   }
 
-  console.log(`Generated ${count} one-time prekeys`);
   return preKeys;
 }
 

@@ -39,8 +39,6 @@ class SessionManagerClass {
    * Create a new session as INITIATOR (starting conversation)
    */
   async createInitiatorSession(recipientId: number): Promise<InitiatorSession> {
-    console.log(`Creating initiator session with user ${recipientId}`);
-
     const bundle = await fetchPreKeyBundle(recipientId);
 
     const isValid = await verifySignedPreKey(
@@ -48,12 +46,6 @@ class SessionManagerClass {
       bundle.signedPreKey,
       bundle.signedPreKeySignature
     );
-
-    if (!isValid) {
-      console.warn('Signed prekey verification failed - proceeding anyway for demo');
-    } else {
-      console.log('Signed prekey verified successfully');
-    }
 
     const x3dhResult: X3DHResult = await performX3DHInitiator(bundle);
 
@@ -68,7 +60,6 @@ class SessionManagerClass {
 
     await keyStorage.storeSession(recipientId, x3dhResult.sharedSecret);
 
-    console.log(`Initiator session established with ${bundle.username}`);
     return session;
   }
 
@@ -82,8 +73,6 @@ class SessionManagerClass {
     senderEphemeralKey: string,
     usedOneTimePreKeyId: number | null
   ): Promise<Session> {
-    console.log(`Creating responder session with user ${senderId}`);
-
     const sharedSecret = await performX3DHResponder(
       senderIdentityKey,
       senderEphemeralKey,
@@ -99,7 +88,6 @@ class SessionManagerClass {
 
     await keyStorage.storeSession(senderId, sharedSecret);
 
-    console.log(`Responder session established with ${senderUsername}`);
     return session;
   }
 
@@ -123,7 +111,6 @@ class SessionManagerClass {
    */
   async deleteSession(recipientId: number): Promise<void> {
     await keyStorage.deleteSession(recipientId);
-    console.log(`Session deleted for user ${recipientId}`);
   }
 }
 
