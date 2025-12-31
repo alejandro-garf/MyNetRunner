@@ -41,7 +41,7 @@ class SessionManagerClass {
   async createInitiatorSession(recipientId: number): Promise<InitiatorSession> {
     const bundle = await fetchPreKeyBundle(recipientId);
 
-    const isValid = await verifySignedPreKey(
+    await verifySignedPreKey(
       bundle.identityKey,
       bundle.signedPreKey,
       bundle.signedPreKeySignature
