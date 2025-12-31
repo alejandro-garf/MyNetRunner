@@ -106,8 +106,6 @@ async function generateEphemeralKeyPair(): Promise<{ publicKey: string; privateK
  * Perform X3DH as INITIATOR (person starting the conversation)
  */
 export async function performX3DHInitiator(theirBundle: PreKeyBundle): Promise<X3DHResult> {
-  console.log('Performing X3DH key exchange (initiator) with:', theirBundle.username);
-
   const ourIdentity = await keyStorage.getIdentityKeyPair();
   if (!ourIdentity) {
     throw new Error('No identity key found. Please log in again.');
@@ -122,15 +120,12 @@ export async function performX3DHInitiator(theirBundle: PreKeyBundle): Promise<X
 
   // DH1: Our identity private + Their signed prekey public
   const dh1 = await performDH(ourIdentityPrivate, theirSignedPreKeyPublic);
-  console.log('DH1 complete');
 
   // DH2: Our ephemeral private + Their identity public
   const dh2 = await performDH(ephemeral.privateKey, theirIdentityPublic);
-  console.log('DH2 complete');
 
   // DH3: Our ephemeral private + Their signed prekey public
   const dh3 = await performDH(ephemeral.privateKey, theirSignedPreKeyPublic);
-  console.log('DH3 complete');
 
   const dhResults = [dh1, dh2, dh3];
   let usedOneTimePreKeyId: number | null = null;
@@ -141,11 +136,9 @@ export async function performX3DHInitiator(theirBundle: PreKeyBundle): Promise<X
     const dh4 = await performDH(ephemeral.privateKey, theirOneTimePreKeyPublic);
     dhResults.push(dh4);
     usedOneTimePreKeyId = theirBundle.oneTimePreKeyId;
-    console.log('DH4 complete (with one-time prekey)');
   }
 
   const sharedSecret = await kdf(dhResults);
-  console.log('Shared secret derived (initiator)');
 
   return {
     sharedSecret: arrayBufferToBase64(sharedSecret),
@@ -162,8 +155,6 @@ export async function performX3DHResponder(
   senderEphemeralKey: string,
   usedOneTimePreKeyId: number | null
 ): Promise<string> {
-  console.log('Performing X3DH key exchange (responder)');
-
   // Get our keys
   const ourIdentity = await keyStorage.getIdentityKeyPair();
   if (!ourIdentity) {
@@ -183,15 +174,12 @@ export async function performX3DHResponder(
 
   // DH1: Our signed prekey private + Their identity public (reverse of initiator's DH1)
   const dh1 = await performDH(ourSignedPreKeyPrivate, senderIdentityPublic);
-  console.log('DH1 complete (responder)');
 
   // DH2: Our identity private + Their ephemeral public (reverse of initiator's DH2)
   const dh2 = await performDH(ourIdentityPrivate, senderEphemeralPublic);
-  console.log('DH2 complete (responder)');
 
   // DH3: Our signed prekey private + Their ephemeral public (reverse of initiator's DH3)
   const dh3 = await performDH(ourSignedPreKeyPrivate, senderEphemeralPublic);
-  console.log('DH3 complete (responder)');
 
   const dhResults = [dh1, dh2, dh3];
 
@@ -202,7 +190,6 @@ export async function performX3DHResponder(
       const ourOneTimePreKeyPrivate = await importPrivateKey(oneTimePreKey.privateKey);
       const dh4 = await performDH(ourOneTimePreKeyPrivate, senderEphemeralPublic);
       dhResults.push(dh4);
-      console.log('DH4 complete (responder, with one-time prekey)');
 
       // Delete the used one-time prekey
       await keyStorage.deleteOneTimePreKey(usedOneTimePreKeyId);
@@ -210,7 +197,6 @@ export async function performX3DHResponder(
   }
 
   const sharedSecret = await kdf(dhResults);
-  console.log('Shared secret derived (responder)');
 
   return arrayBufferToBase64(sharedSecret);
 }
@@ -246,7 +232,6 @@ export async function verifySignedPreKey(
 
     return isValid;
   } catch (error) {
-    console.error('Signature verification failed:', error);
     return false;
   }
 }

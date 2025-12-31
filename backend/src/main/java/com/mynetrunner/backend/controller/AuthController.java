@@ -22,7 +22,9 @@ import com.mynetrunner.backend.service.TokenBlacklistService;
 import com.mynetrunner.backend.service.UserService;
 import com.mynetrunner.backend.util.JwtUtil;
 
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 
 @RestController
@@ -51,9 +53,12 @@ public class AuthController {
      * Register a new user
      */
     @PostMapping("/register")
-    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request) {
+    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request, HttpServletResponse httpResponse) {
         try {
             AuthResponse authResponse = userService.register(request.getUsername(), request.getPassword());
+
+            // Set tokens in httpOnly cookies for security
+            setAuthCookies(httpResponse, authResponse.getToken(), authResponse.getRefreshToken());
 
             Map<String, Object> response = new HashMap<>();
             response.put("message", authResponse.getMessage());
@@ -69,10 +74,10 @@ public class AuthController {
     }
 
     /**
-     * Login user and return JWT token
+     * Login user and set JWT tokens in httpOnly cookies
      */
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         try {
             AuthResponse authResponse = userService.login(request.getUsername(), request.getPassword());
 
@@ -80,10 +85,11 @@ public class AuthController {
             String clientIp = getClientIp(httpRequest);
             rateLimitService.resetLimit(clientIp, "login");
 
+            // Set tokens in httpOnly cookies for security
+            setAuthCookies(httpResponse, authResponse.getToken(), authResponse.getRefreshToken());
+
             Map<String, Object> response = new HashMap<>();
             response.put("message", authResponse.getMessage());
-            response.put("token", authResponse.getToken());
-            response.put("refreshToken", authResponse.getRefreshToken());
             response.put("username", authResponse.getUsername());
             response.put("userId", authResponse.getUserId());
 
@@ -96,11 +102,11 @@ public class AuthController {
     }
 
     /**
-     * Refresh access token
+     * Refresh access token using refresh token from httpOnly cookie
      */
     @PostMapping("/refresh")
-    public ResponseEntity<?> refresh(@RequestBody Map<String, String> request) {
-        String refreshToken = request.get("refreshToken");
+    public ResponseEntity<?> refresh(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        String refreshToken = getTokenFromCookie(httpRequest, "refreshToken");
 
         if (refreshToken == null || refreshToken.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Refresh token required"));
@@ -121,7 +127,12 @@ public class AuthController {
 
             if (username != null && jwtUtil.validateToken(refreshToken)) {
                 String newAccessToken = jwtUtil.generateToken(username);
-                return ResponseEntity.ok(Map.of("token", newAccessToken));
+
+                // Update access token cookie
+                Cookie accessTokenCookie = createCookie("token", newAccessToken, 24 * 60 * 60); // 24 hours
+                httpResponse.addCookie(accessTokenCookie);
+
+                return ResponseEntity.ok(Map.of("message", "Token refreshed successfully"));
             }
 
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid refresh token"));
@@ -131,17 +142,16 @@ public class AuthController {
     }
 
     /**
-     * Logout user - blacklist tokens and delete pending messages
+     * Logout user - blacklist tokens, delete pending messages, and clear cookies
      */
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
-        String authHeader = httpRequest.getHeader("Authorization");
+    public ResponseEntity<?> logout(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        String token = getTokenFromCookie(httpRequest, "token");
+        String refreshToken = getTokenFromCookie(httpRequest, "refreshToken");
 
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
-
-            // Get username before blacklisting
-            String username = null;
+        // Get username before blacklisting
+        String username = null;
+        if (token != null) {
             try {
                 username = jwtUtil.extractUsername(token);
             } catch (Exception e) {
@@ -150,25 +160,84 @@ public class AuthController {
 
             // Blacklist the access token
             tokenBlacklistService.blacklistToken(token);
-
-            // Blacklist refresh token if provided
-            String refreshToken = request.get("refreshToken");
-            if (refreshToken != null && !refreshToken.isEmpty()) {
-                tokenBlacklistService.blacklistToken(refreshToken);
-            }
-
-            // Delete any pending messages for this user (privacy)
-            if (username != null) {
-                User user = userRepository.findByUsername(username).orElse(null);
-                if (user != null) {
-                    messageService.deleteAllMessagesForUser(user.getId());
-                }
-            }
-
-            return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
         }
 
-        return ResponseEntity.badRequest().body(Map.of("error", "No token provided"));
+        // Blacklist refresh token if present
+        if (refreshToken != null && !refreshToken.isEmpty()) {
+            tokenBlacklistService.blacklistToken(refreshToken);
+        }
+
+        // Delete any pending messages for this user (privacy)
+        if (username != null) {
+            User user = userRepository.findByUsername(username).orElse(null);
+            if (user != null) {
+                messageService.deleteAllMessagesForUser(user.getId());
+            }
+        }
+
+        // Clear auth cookies
+        clearAuthCookies(httpResponse);
+
+        return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
+    }
+
+    /**
+     * Helper method to set authentication cookies
+     */
+    private void setAuthCookies(HttpServletResponse response, String accessToken, String refreshToken) {
+        // Access token cookie (24 hours)
+        Cookie accessTokenCookie = createCookie("token", accessToken, 24 * 60 * 60);
+        response.addCookie(accessTokenCookie);
+
+        // Refresh token cookie (7 days)
+        Cookie refreshTokenCookie = createCookie("refreshToken", refreshToken, 7 * 24 * 60 * 60);
+        response.addCookie(refreshTokenCookie);
+    }
+
+    /**
+     * Helper method to create a secure httpOnly cookie
+     */
+    private Cookie createCookie(String name, String value, int maxAge) {
+        Cookie cookie = new Cookie(name, value);
+        cookie.setHttpOnly(true);  // Prevents XSS attacks
+        cookie.setSecure(true);     // Only sent over HTTPS
+        cookie.setPath("/");        // Available for entire app
+        cookie.setMaxAge(maxAge);   // Expiration time in seconds
+        cookie.setAttribute("SameSite", "Strict"); // CSRF protection
+        return cookie;
+    }
+
+    /**
+     * Helper method to extract token from cookie
+     */
+    private String getTokenFromCookie(HttpServletRequest request, String cookieName) {
+        if (request.getCookies() != null) {
+            for (Cookie cookie : request.getCookies()) {
+                if (cookieName.equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Helper method to clear authentication cookies
+     */
+    private void clearAuthCookies(HttpServletResponse response) {
+        Cookie clearToken = new Cookie("token", null);
+        clearToken.setHttpOnly(true);
+        clearToken.setSecure(true);
+        clearToken.setPath("/");
+        clearToken.setMaxAge(0);
+        response.addCookie(clearToken);
+
+        Cookie clearRefreshToken = new Cookie("refreshToken", null);
+        clearRefreshToken.setHttpOnly(true);
+        clearRefreshToken.setSecure(true);
+        clearRefreshToken.setPath("/");
+        clearRefreshToken.setMaxAge(0);
+        response.addCookie(clearRefreshToken);
     }
 
     private String getClientIp(HttpServletRequest request) {

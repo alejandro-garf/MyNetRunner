@@ -1,11 +1,11 @@
 import axios, { AxiosError } from 'axios';
 import type { AuthCredentials, RegisterCredentials, AuthResponse } from '../types';
-import { keyStorage as _keyStorage } from '../crypto/KeyStorage';
 import type { Message } from '../types';
 
-// Create axios instance with no-cache headers for privacy
+// Create axios instance with credentials and privacy headers
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
+  withCredentials: true, // Enable sending cookies with requests
   headers: {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -17,41 +17,7 @@ const api = axios.create({
 // Named export for use in websocket.ts
 export { api };
 
-// Add token to requests if available
-api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Token management functions
-export const getToken = (): string | null => {
-  return localStorage.getItem('token');
-};
-
-export const setToken = (token: string): void => {
-  localStorage.setItem('token', token);
-};
-
-export const getRefreshToken = (): string | null => {
-  return localStorage.getItem('refreshToken');
-};
-
-export const setRefreshToken = (token: string): void => {
-  localStorage.setItem('refreshToken', token);
-};
-
-export const removeTokens = (): void => {
-  localStorage.removeItem('token');
-  localStorage.removeItem('refreshToken');
-};
-
-export const removeToken = (): void => {
-  removeTokens();
-};
-
+// User session management (non-sensitive data only)
 export const getUsername = (): string | null => {
   return localStorage.getItem('username');
 };
@@ -71,111 +37,73 @@ export const setUserId = (userId: number | undefined): void => {
   }
 };
 
+export const clearUserSession = (): void => {
+  localStorage.removeItem('username');
+  localStorage.removeItem('userId');
+};
+
 // Auth API calls
 export const authAPI = {
-  // Register new user
+  // Register new user - tokens set via httpOnly cookies
   register: async (credentials: RegisterCredentials): Promise<AuthResponse> => {
     try {
       const { confirmPassword, ...registerData } = credentials;
       const response = await api.post('/api/auth/register', registerData);
 
-      console.log('Register response:', response.data);
-
       const data = response.data;
       return {
-        token: '',
+        token: '', // No longer returned - using httpOnly cookies
         username: data.username,
         userId: data.userId || 0,
         message: data.message,
       };
     } catch (error) {
       if (error instanceof AxiosError) {
-        console.error('Register error:', error.response?.data);
         throw new Error(error.response?.data?.error || 'Registration failed');
       }
       throw new Error('An unexpected error occurred');
     }
   },
 
-  // Login user
+  // Login user - tokens set via httpOnly cookies
   login: async (credentials: AuthCredentials): Promise<AuthResponse> => {
     try {
       const response = await api.post('/api/auth/login', credentials);
-
-      console.log('Login response:', response.data);
-
       const data = response.data;
 
-      if (!data.userId) {
-        console.error('Backend did not return userId! Full response:', data);
-      }
-
-      // Store refresh token if provided
-      if (data.refreshToken) {
-        setRefreshToken(data.refreshToken);
-      }
-
       return {
-        token: data.token,
+        token: '', // No longer returned - using httpOnly cookies
         username: data.username,
         userId: data.userId || 0,
         message: data.message,
       };
     } catch (error) {
       if (error instanceof AxiosError) {
-        console.error('Login error:', error.response?.data);
         throw new Error(error.response?.data?.error || 'Login failed');
       }
       throw new Error('An unexpected error occurred');
     }
   },
 
-  // Refresh access token
-  refreshToken: async (): Promise<string | null> => {
+  // Refresh access token - handled automatically via cookies
+  refreshToken: async (): Promise<boolean> => {
     try {
-      const refreshToken = getRefreshToken();
-      if (!refreshToken) {
-        return null;
-      }
-
-      const response = await api.post('/api/auth/refresh', { refreshToken });
-      const newToken = response.data.token;
-
-      if (newToken) {
-        setToken(newToken);
-        return newToken;
-      }
-      return null;
+      await api.post('/api/auth/refresh');
+      return true;
     } catch (error) {
-      console.error('Token refresh failed:', error);
-      return null;
+      return false;
     }
   },
 
-  // Logout user - clears all local data including encryption keys
+  // Logout user - clears server-side session and cookies
   logout: async (): Promise<void> => {
     try {
-      const token = getToken();
-      const refreshToken = getRefreshToken();
-
-      if (token) {
-        await api.post('/api/auth/logout', { refreshToken });
-      }
+      await api.post('/api/auth/logout');
     } catch (error) {
-      console.error('Logout error:', error);
+      // Ignore errors - clear local data anyway
     } finally {
-      // Clear all local storage
-      removeTokens();
-      localStorage.removeItem('username');
-      localStorage.removeItem('userId');
-
-      // Clear encryption keys (privacy)
-      try {
-      // await keyStorage.clearAll();
-      console.log('Encryption keys preserved for offline message decryption');
-    } catch (e) {
-      console.error('Failed to clear encryption keys:', e);
-    }
+      // Clear local user session
+      clearUserSession();
     }
   },
 };
@@ -217,7 +145,6 @@ export const userAPI = {
       if (error instanceof AxiosError && error.response?.status === 404) {
         return null;
       }
-      console.error('Failed to get user by username:', error);
       return null;
     }
   },

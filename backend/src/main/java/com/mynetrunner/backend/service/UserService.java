@@ -31,7 +31,7 @@ public class UserService {
     public AuthResponse register(String username, String password) {
         // Sanitize username
         String sanitizedUsername = sanitizationUtil.sanitizeUsername(username);
-        
+
         // Validate sanitized username matches original (no dangerous chars removed)
         if (!sanitizedUsername.equals(username.trim())) {
             throw new IllegalArgumentException("Username contains invalid characters. Only letters, numbers, and underscores are allowed.");
@@ -49,15 +49,16 @@ public class UserService {
         user.setPasswordHash(hashedPassword);
         User savedUser = userRepository.save(user);
 
-        // Generate JWT token
+        // Generate JWT tokens (access and refresh)
         String token = jwtUtil.generateToken(sanitizedUsername);
-        return new AuthResponse(token, sanitizedUsername, savedUser.getId(), "User registered successfully");
+        String refreshToken = jwtUtil.generateRefreshToken(sanitizedUsername);
+        return new AuthResponse(token, refreshToken, sanitizedUsername, savedUser.getId(), "User registered successfully");
     }
 
     public AuthResponse login(String username, String password) {
         // Sanitize username for lookup
         String sanitizedUsername = sanitizationUtil.sanitizeUsername(username);
-        
+
         // Find user
         User user = userRepository.findByUsername(sanitizedUsername)
             .orElseThrow(() -> new InvalidCredentialsException("Invalid username or password"));
@@ -67,9 +68,10 @@ public class UserService {
             throw new InvalidCredentialsException("Invalid username or password");
         }
 
-        // Generate JWT token
+        // Generate JWT tokens (access and refresh)
         String token = jwtUtil.generateToken(sanitizedUsername);
-        return new AuthResponse(token, sanitizedUsername, user.getId(), "Login successful");
+        String refreshToken = jwtUtil.generateRefreshToken(sanitizedUsername);
+        return new AuthResponse(token, refreshToken, sanitizedUsername, user.getId(), "Login successful");
     }
 
     public List<User> getAllUsers() {

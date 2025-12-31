@@ -13,23 +13,19 @@ const REPLENISH_COUNT = 10;
 export async function checkAndReplenishPreKeys(): Promise<void> {
   try {
     const status = await getPreKeyCount();
-    
+
     if (status.count < MIN_PREKEYS) {
-      console.log(`Low on prekeys (${status.count}), generating more...`);
-      
       // Find the next available keyId
       const nextKeyId = Date.now(); // Use timestamp to ensure uniqueness
-      
+
       // Generate new prekeys
       const newPreKeys = await generateOneTimePreKeys(nextKeyId, REPLENISH_COUNT);
-      
+
       // Upload to server
       await uploadOneTimePreKeys(newPreKeys);
-      
-      console.log(`Replenished ${REPLENISH_COUNT} one-time prekeys`);
     }
   } catch (error) {
-    console.error('Failed to check/replenish prekeys:', error);
+    // Failed to check/replenish prekeys
   }
 }
 
