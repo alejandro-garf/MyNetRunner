@@ -202,17 +202,6 @@ mynetrunner/
 
 ---
 
-## Roadmap
-
-- [ ] Group messaging with sender keys
-- [ ] Typing indicators
-- [ ] Read receipts (optional, privacy-respecting)
-- [ ] File sharing with encryption
-- [ ] Mobile applications
-- [ ] Security audit by third party
-
----
-
 ## License
 
 MIT License - See LICENSE for details.
@@ -221,6 +210,6 @@ MIT License - See LICENSE for details.
 
 ## Author
 
-**Alejandro Garcia** - Security-focused software engineer
+**Alejandro Fonseca** - Security Engineer
 
 Built as a demonstration of implementing secure, privacy-preserving communication systems.
